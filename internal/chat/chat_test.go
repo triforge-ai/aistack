@@ -140,6 +140,65 @@ func TestChatPersistsAndResumesSession(t *testing.T) {
 	}
 }
 
+// writableProv is a fake provider that can be granted write permission.
+type writableProv struct{ wrote bool }
+
+func (writableProv) Name() string { return "wprov" }
+func (p writableProv) Ask(context.Context, string) (string, error) {
+	if p.wrote {
+		return "WROTE", nil
+	}
+	return "READONLY", nil
+}
+func (writableProv) CanWrite() bool               { return true }
+func (writableProv) WithWrite() provider.Provider { return writableProv{wrote: true} }
+
+func newWritableSession(t *testing.T) *chat.Session {
+	t.Helper()
+	mem := service.New(store.NewMemoryStore(), embed.NewHashEmbedder(64))
+	reg := provider.NewRegistry()
+	reg.Register(writableProv{})
+	ws := &workspace.Workspace{ID: "ws", Agents: map[string]workspace.AgentDef{"backend": {Name: "backend"}}}
+	return chat.New(ctxbuilder.New(mem), mem, reg, ws, "backend", "wprov", false)
+}
+
+func TestChatReadOnlyHint(t *testing.T) {
+	var out bytes.Buffer
+	if err := newWritableSession(t).Run(context.Background(), strings.NewReader("/exit\n"), &out); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(out.String(), "read-only") {
+		t.Fatalf("expected a read-only warning for a write-capable provider:\n%s", out.String())
+	}
+}
+
+func TestChatWriteModeWraps(t *testing.T) {
+	var out bytes.Buffer
+	s := newWritableSession(t)
+	s.EnableWrite()
+	if err := s.Run(context.Background(), strings.NewReader("do it\n/exit\n"), &out); err != nil {
+		t.Fatal(err)
+	}
+	got := out.String()
+	if !strings.Contains(got, "write mode ON") {
+		t.Fatalf("expected write-mode banner:\n%s", got)
+	}
+	if !strings.Contains(got, "WROTE") {
+		t.Fatalf("write mode should use the write variant (WROTE):\n%s", got)
+	}
+}
+
+func TestChatAgentCommand(t *testing.T) {
+	var out bytes.Buffer
+	s, _ := newSession(t)
+	if err := s.Run(context.Background(), strings.NewReader("/agent\n/exit\n"), &out); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(out.String(), "agent: backend") {
+		t.Fatalf("/agent should report the current agent:\n%s", out.String())
+	}
+}
+
 func TestChatExitImmediately(t *testing.T) {
 	ctx := context.Background()
 	s, _ := newSession(t)

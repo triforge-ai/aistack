@@ -44,6 +44,9 @@ type Session struct {
 	// toggled at runtime with /remember.
 	saveMemory bool
 
+	// writeMode grants write-capable providers permission to modify files.
+	writeMode bool
+
 	// sessions/record persist the verbatim transcript so it can be resumed.
 	// Both are nil when session persistence is disabled (e.g. in tests).
 	sessions session.Store
@@ -58,6 +61,10 @@ type Session struct {
 func New(b ctxbuilder.Builder, mem *service.Service, reg *provider.Registry, ws *workspace.Workspace, agent, prov string, saveMemory bool) *Session {
 	return &Session{builder: b, memory: mem, providers: reg, ws: ws, agent: agent, provider: prov, saveMemory: saveMemory}
 }
+
+// EnableWrite lets write-capable providers modify files for this session
+// (equivalent to launching with --write).
+func (s *Session) EnableWrite() { s.writeMode = true }
 
 // Persist enables session persistence: any messages already on rec seed the
 // in-memory transcript (so a resumed session continues where it left off), and
@@ -91,6 +98,7 @@ func (s *Session) Run(ctx context.Context, in io.Reader, out io.Writer) error {
 		}
 		fmt.Fprintln(out)
 	}
+	s.writeStatus(out, s.provider)
 	fmt.Fprintln(out, "switch model with /<provider> or /use; /help for more. Ctrl-D to quit.")
 
 	sc := bufio.NewScanner(in)
@@ -144,6 +152,8 @@ func (s *Session) command(ctx context.Context, out io.Writer, line string) bool 
 		}
 	case "provider":
 		s.showProviders(out)
+	case "agent":
+		fmt.Fprintf(out, "agent: %s (fixed for this session — relaunch `ai chat <agent>` to change)\n", s.agent)
 	case "remember":
 		s.toggleSave(out, rest)
 	case "session":
@@ -157,7 +167,7 @@ func (s *Session) command(ctx context.Context, out io.Writer, line string) bool 
 		}
 		s.switchProvider(out, rest)
 	case "help":
-		fmt.Fprintln(out, "commands: /<provider> [msg]  /use <provider>  /provider  /memory  /remember [on|off]  /session  /sessions  /reset  /exit")
+		fmt.Fprintln(out, "commands: /<provider> [msg]  /use <provider>  /provider  /agent  /memory  /remember [on|off]  /session  /sessions  /reset  /exit")
 	default:
 		// A bare provider name switches; `/<provider> <msg>` is a one-off.
 		if s.providers.Has(name) {
@@ -205,6 +215,26 @@ func (s *Session) switchProvider(out io.Writer, name string) {
 	}
 	s.provider = name
 	fmt.Fprintf(out, "(active provider → %s)\n", name)
+	s.writeStatus(out, name)
+}
+
+// writeStatus tells the user whether the active provider can modify files: a
+// read-only warning for a write-capable provider when write mode is off, or a
+// heads-up that edits are enabled when it is on.
+func (s *Session) writeStatus(out io.Writer, name string) {
+	p, err := s.providers.Get(name)
+	if err != nil {
+		return
+	}
+	w, ok := p.(provider.Writable)
+	if !ok || !w.CanWrite() {
+		return
+	}
+	if s.writeMode {
+		fmt.Fprintf(out, "⚠ write mode ON — %s may modify files in this directory.\n", name)
+	} else {
+		fmt.Fprintf(out, "note: %s runs read-only — file edits won't be saved. Relaunch with --write to enable.\n", name)
+	}
 }
 
 func (s *Session) showProviders(out io.Writer) {
@@ -265,6 +295,11 @@ func (s *Session) turn(ctx context.Context, out io.Writer, msg, providerName str
 	prov, err := s.providers.Get(providerName)
 	if err != nil {
 		return err
+	}
+	if s.writeMode {
+		if w, ok := prov.(provider.Writable); ok && w.CanWrite() {
+			prov = w.WithWrite()
+		}
 	}
 	streamed := false
 	if st, ok := prov.(provider.Streamer); ok {

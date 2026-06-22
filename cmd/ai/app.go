@@ -45,6 +45,7 @@ func openWorkspace() (*app.App, *workspace.Workspace, error) {
 type runOpts struct {
 	provider string
 	limit    int
+	write    bool
 }
 
 // parseOpts splits args into the shared --provider/--limit flags and the
@@ -68,6 +69,8 @@ func parseOpts(args []string) (runOpts, []string, error) {
 			if _, err := fmt.Sscanf(args[i], "%d", &opts.limit); err != nil {
 				return opts, nil, fmt.Errorf("--limit: %w", err)
 			}
+		case "--write", "--yolo":
+			opts.write = true
 		default:
 			positional = append(positional, args[i])
 		}

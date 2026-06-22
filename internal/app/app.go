@@ -92,6 +92,7 @@ func ProvidersFromWorkspace(ws *workspace.Workspace) []providercli.Spec {
 			Stream:     p.Stream,
 			Format:     p.Format,
 			HealthArgs: p.HealthArgs,
+			WriteArgs:  p.WriteArgs,
 		})
 	}
 	return specs

@@ -15,6 +15,8 @@ import (
 	"os/exec"
 	"strings"
 	"time"
+
+	"github.com/triforge-ai/aistack/internal/provider"
 )
 
 // promptPlaceholder, when present in Args, is replaced by the prompt. Otherwise,
@@ -44,6 +46,11 @@ type Spec struct {
 	HealthArgs []string
 	// HealthTimeout bounds the liveness probe; 0 defaults to 10s.
 	HealthTimeout time.Duration
+	// WriteArgs are extra flags appended in write mode to let the agent actually
+	// modify files / run tools (e.g. claude --permission-mode acceptEdits). Empty
+	// means the provider has no known write toggle. Without these flags an agent
+	// CLI typically runs read-only and silently discards edits.
+	WriteArgs []string
 }
 
 // CmdProvider runs an agent CLI per its Spec.
@@ -56,6 +63,23 @@ func (p *CmdProvider) Name() string { return p.spec.Name }
 
 // Streams reports whether Ask streams output to the terminal (vs. capturing it).
 func (p *CmdProvider) Streams() bool { return p.spec.Stream }
+
+// CanWrite reports whether this provider has write flags to enable (so callers
+// can tell the user it is otherwise running read-only).
+func (p *CmdProvider) CanWrite() bool { return len(p.spec.WriteArgs) > 0 }
+
+// WithWrite returns a variant that appends the provider's WriteArgs, granting it
+// permission to modify files / run tools. It returns the receiver unchanged when
+// there are no write flags to apply.
+func (p *CmdProvider) WithWrite() provider.Provider {
+	if len(p.spec.WriteArgs) == 0 {
+		return p
+	}
+	s := p.spec
+	s.Args = append(append([]string{}, s.Args...), s.WriteArgs...)
+	s.WriteArgs = nil // already folded into Args
+	return &CmdProvider{spec: s}
+}
 
 // Available reports whether the CLI binary is resolvable on PATH.
 func (p *CmdProvider) Available() bool {
@@ -265,10 +289,10 @@ var versionProbe = []string{"--version"}
 func Builtins() []Spec {
 	return []Spec{
 		// claude renders its stream-json events live (text + tool calls).
-		{Name: "claude", Bin: "claude", Args: []string{"-p", "--output-format", "stream-json", "--verbose"}, Stream: true, Format: "stream-json", HealthArgs: versionProbe},
-		{Name: "cursor", Bin: "cursor-agent", Args: []string{"-p"}, Stream: true, HealthArgs: versionProbe},
-		{Name: "gemini", Bin: "gemini", Args: []string{"-p"}, Stream: true, HealthArgs: versionProbe},
-		{Name: "codex", Bin: "codex", Args: []string{"exec"}, Stream: true, HealthArgs: versionProbe},
+		{Name: "claude", Bin: "claude", Args: []string{"-p", "--output-format", "stream-json", "--verbose"}, Stream: true, Format: "stream-json", HealthArgs: versionProbe, WriteArgs: []string{"--permission-mode", "acceptEdits"}},
+		{Name: "cursor", Bin: "cursor-agent", Args: []string{"-p"}, Stream: true, HealthArgs: versionProbe, WriteArgs: []string{"-f"}},
+		{Name: "gemini", Bin: "gemini", Args: []string{"-p"}, Stream: true, HealthArgs: versionProbe, WriteArgs: []string{"--yolo"}},
+		{Name: "codex", Bin: "codex", Args: []string{"exec"}, Stream: true, HealthArgs: versionProbe, WriteArgs: []string{"--full-auto"}},
 		// agy reads the prompt on stdin; its output still streams to the terminal.
 		{Name: "agy", Bin: "agy", Args: []string{"-p"}, Stdin: true, Stream: true, HealthArgs: versionProbe},
 	}

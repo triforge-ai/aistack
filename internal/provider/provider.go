@@ -35,6 +35,16 @@ type HealthChecker interface {
 	Health(ctx context.Context) (detail string, err error)
 }
 
+// Writable is an optional capability: an agent CLI that runs read-only by
+// default but can be granted permission to modify files / run tools. CanWrite
+// reports whether enabling write makes a difference (so callers can warn that
+// the provider is otherwise read-only); WithWrite returns a variant with that
+// permission turned on.
+type Writable interface {
+	CanWrite() bool
+	WithWrite() Provider
+}
+
 // Registry holds the available providers by name.
 type Registry struct {
 	providers map[string]Provider
