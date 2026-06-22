@@ -38,17 +38,17 @@ If you only ever use one model for simple chat, running that provider's CLI
 directly is lighter. `ai` earns its keep when you juggle multiple providers, want
 workspace-wide memory, or build repeatable multi-model workflows.
 
-## Status — v0.4 (fully-local, offline-first)
+## Status — v0.4 (local-first)
 
-The pipeline is **offline-first with no cloud or API-key dependency**. It runs
-zero-config out of the box, and every external-feeling piece is a swappable
-local backend behind a stable interface:
+Everything runs locally with no cloud or API-key dependency. Each
+external-feeling piece is a swappable local backend behind a stable interface:
 
 - **Embeddings** — `OllamaEmbedder` (e.g. `nomic-embed-text`, 768 dims) for real
   semantic search, or the zero-dependency `HashEmbedder`. Identical text is
   embedded once and cached (`hash(text) → vector`).
-- **Storage** — durable JSON `FileStore` by default; **Postgres + pgvector** by
-  changing one config block.
+- **Storage** — **Postgres + pgvector by default** (start it with `ai db up`);
+  set `storage: type: file` for a zero-dependency JSON store that runs fully
+  offline with no database.
 
 Design order was deliberately **intelligence first, storage second**: the memory
 logic was built and tested against the file store, then `PgVectorStore` and
@@ -64,7 +64,7 @@ AI CLI (cmd/ai)
        │   ├── chunk   paragraph-aware splitter
        │   ├── sync    incremental Obsidian/docs sync (content-hash diff)
        │   ├── ranking Reciprocal Rank Fusion (vector + keyword)
-       │   └── store   FileStore (default) | MemoryStore | PgVectorStore (hybrid)
+       │   └── store   PgVectorStore (default, hybrid) | FileStore | MemoryStore
        ├── ctxbuilder builds + assembles the final prompt   ← core intelligence
        ├── agent      runtime: build context → dispatch
        └── provider   dryrun | claude | cursor | gemini | codex | agy | (any CLI)
@@ -92,6 +92,7 @@ make build        # or: go build -o bin/ai ./cmd/ai
 
 mkdir demo && cd demo
 ../bin/ai init                                  # scaffold .ai/
+../bin/ai db up                                  # start pgvector (the default store)
 ../bin/ai memory sync                            # index documents/ (+ obsidian) into memory
 ../bin/ai memory add "use HNSW for pgvector"     # add a note (persists; or pipe via stdin)
 ../bin/ai memory search "vector retrieval"       # semantic search over the workspace
@@ -99,8 +100,9 @@ mkdir demo && cd demo
 ../bin/ai run backend "implement an endpoint"   # run (dryrun provider by default)
 ```
 
-Memory is durable across invocations (JSON store under `.ai/.cache/`); sync is
-incremental (only changed files are re-embedded).
+Memory persists in Postgres by default (`ai db up` starts it). To run with no
+database, set `storage: type: file` for a durable JSON store under `.ai/.cache/`.
+Sync is incremental either way (only changed files are re-embedded).
 
 ### Local embeddings with Ollama
 
@@ -129,17 +131,20 @@ Embeddings are cached under `.ai/.cache/embed-cache.json`, keyed by
 > change an embedder's dimension without re-syncing (clear the workspace memory
 > first) — mixing dimensions within a workspace breaks distance comparisons.
 
-### Switching to pgvector
+### pgvector (default) and the offline file backend
 
-Start Postgres and point the workspace at it — nothing else changes:
+pgvector is the default store, so there's nothing to switch on — just start it.
+The connection defaults to `localhost:5432 ai/ai ai_workspace`:
 
 ```bash
-make db-up          # docker compose up -d (pgvector/pgvector:pg16)
+ai db up            # docker compose up -d (pgvector/pgvector:pg16)
+ai db ping          # verify the connection (also runs migrations)
+ai memory sync      # persists into Postgres
 ```
 
+Override the connection (or point at a remote Postgres) in `.ai/workspace.yaml`:
+
 ```yaml
-# .ai/workspace.yaml
-id: my-workspace
 storage:
   type: pgvector
   host: localhost
@@ -149,9 +154,11 @@ storage:
   db: ai_workspace
 ```
 
-```bash
-ai db ping          # verify the connection (also runs migrations)
-ai memory sync      # now persists into Postgres
+To run **fully offline with no database**, switch to the durable JSON file store:
+
+```yaml
+storage:
+  type: file        # JSON under .ai/.cache/, no Postgres needed
 ```
 
 The schema is applied automatically on connect (idempotent), sized to the

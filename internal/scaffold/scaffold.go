@@ -27,8 +27,8 @@ var files = []file{
 #   host: http://localhost:11434
 #   cache: true
 
-# Memory store. Default is a durable JSON file under .ai/.cache/.
-# For production semantic search, run ` + "`make db-up`" + ` and uncomment:
+# Memory store. Default is pgvector — start it with ` + "`ai db up`" + ` (connection
+# defaults to localhost:5432 ai/ai ai_workspace; override the fields below).
 # storage:
 #   type: pgvector
 #   host: localhost
@@ -36,6 +36,10 @@ var files = []file{
 #   user: ai
 #   password: ai
 #   db: ai_workspace
+#
+# To run fully offline with no database, use the durable file backend instead:
+# storage:
+#   type: file
 
 # Agent CLI providers. claude / cursor / agy are built in; uncomment to add
 # your own or override. default_provider is used when an agent omits one.

@@ -58,7 +58,7 @@ func cmdDBPing() error {
 	}
 	backend := ws.Storage.Type
 	if backend == "" {
-		backend = "file"
+		backend = "pgvector"
 	}
 	fmt.Printf("ok — storage backend %q reachable\n", backend)
 	return nil
