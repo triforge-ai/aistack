@@ -10,6 +10,34 @@ ai run backend "implement storage"   ✅  agent-driven
 
 Design docs: [`OVERVIEW.md`](OVERVIEW.md), [`MEMORY_CONTEXT_BUILDER.md`](MEMORY_CONTEXT_BUILDER.md).
 
+## Why CLI providers?
+
+`ai` treats installed agent CLIs (Claude Code, Codex, Cursor, Gemini, …) as
+**interchangeable backends behind one interface**, rather than calling provider
+APIs directly. If you already pay for those CLIs, you reuse that subscription —
+no separate API tokens or billing.
+
+What this buys you today:
+
+- **One interface, many models.** The same commands work regardless of backend;
+  switch with a config change (`default_provider`) or per agent — no memorizing
+  `claude …` vs `gemini …` vs `codex …`. `ai health` checks they're installed and
+  runnable.
+- **Multi-model in one session.** In `ai chat`, send a single message to any
+  provider (`/gemini …`) or switch the active one (`/use codex`) — the shared
+  transcript and retrieved memory carry across models, so one can build on
+  another's output (plan with one, implement with another, review with a third).
+- **Workspace memory.** Every chat turn and synced document feeds a local
+  semantic index (`ai memory …`), so relevant context is recalled across runs —
+  not just within the current terminal session.
+
+**Roadmap** (not built yet): named/resumable sessions with export, recipes and
+scheduled/automated workflows, and a planning mode — see [`OVERVIEW.md`](OVERVIEW.md).
+
+If you only ever use one model for simple chat, running that provider's CLI
+directly is lighter. `ai` earns its keep when you juggle multiple providers, want
+workspace-wide memory, or build repeatable multi-model workflows.
+
 ## Status — v0.4 (fully-local, offline-first)
 
 The pipeline is **offline-first with no cloud or API-key dependency**. It runs
