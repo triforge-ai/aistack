@@ -10,7 +10,7 @@ import (
 	"sync"
 	"time"
 
-	"ai-cli/internal/memory"
+	"github.com/triforge-ai/aistack/internal/memory"
 
 	_ "github.com/lib/pq"
 )

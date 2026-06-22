@@ -6,9 +6,9 @@ import (
 	"context"
 	"fmt"
 
-	"ai-cli/internal/ctxbuilder"
-	"ai-cli/internal/provider"
-	"ai-cli/internal/workspace"
+	"github.com/triforge-ai/aistack/internal/ctxbuilder"
+	"github.com/triforge-ai/aistack/internal/provider"
+	"github.com/triforge-ai/aistack/internal/workspace"
 )
 
 // Runner executes agents.

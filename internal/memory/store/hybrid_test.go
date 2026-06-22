@@ -4,7 +4,7 @@ import (
 	"context"
 	"testing"
 
-	"ai-cli/internal/memory"
+	"github.com/triforge-ai/aistack/internal/memory"
 )
 
 // TestPgVectorHybrid exercises BM25 keyword search and the Hybrid interface

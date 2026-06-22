@@ -6,15 +6,15 @@ import (
 	"strings"
 	"testing"
 
-	"ai-cli/internal/chat"
-	"ai-cli/internal/ctxbuilder"
-	"ai-cli/internal/memory"
-	"ai-cli/internal/memory/embed"
-	"ai-cli/internal/memory/service"
-	"ai-cli/internal/memory/store"
-	"ai-cli/internal/provider"
-	"ai-cli/internal/provider/dryrun"
-	"ai-cli/internal/workspace"
+	"github.com/triforge-ai/aistack/internal/chat"
+	"github.com/triforge-ai/aistack/internal/ctxbuilder"
+	"github.com/triforge-ai/aistack/internal/memory"
+	"github.com/triforge-ai/aistack/internal/memory/embed"
+	"github.com/triforge-ai/aistack/internal/memory/service"
+	"github.com/triforge-ai/aistack/internal/memory/store"
+	"github.com/triforge-ai/aistack/internal/provider"
+	"github.com/triforge-ai/aistack/internal/provider/dryrun"
+	"github.com/triforge-ai/aistack/internal/workspace"
 )
 
 func newSession(t *testing.T) (*chat.Session, *service.Service) {
@@ -29,7 +29,7 @@ func newSession(t *testing.T) (*chat.Session, *service.Service) {
 			"backend": {Name: "backend", System: "you are backend"},
 		},
 	}
-	s := chat.New(ctxbuilder.New(mem), mem, reg, ws, "backend", "dryrun")
+	s := chat.New(ctxbuilder.New(mem), mem, reg, ws, "backend", "dryrun", true)
 	return s, mem
 }
 
@@ -80,6 +80,27 @@ func TestChatStoresConversationAsMemory(t *testing.T) {
 	}
 }
 
+func TestChatSaveOffDoesNotPersist(t *testing.T) {
+	ctx := context.Background()
+	s, mem := newSession(t)
+
+	// /save off must stop the exchange from being written to memory.
+	in := strings.NewReader("/save off\nremember this\n/exit\n")
+	if err := s.Run(ctx, in, &bytes.Buffer{}); err != nil {
+		t.Fatal(err)
+	}
+
+	hits, err := mem.List(ctx, "ws")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, m := range hits {
+		if m.Type == memory.TypeChat {
+			t.Fatalf("expected no chat memory after /save off, found: %q", m.Content)
+		}
+	}
+}
+
 func TestChatExitImmediately(t *testing.T) {
 	ctx := context.Background()
 	s, _ := newSession(t)
@@ -101,7 +122,7 @@ func newMultiSession(t *testing.T) *chat.Session {
 	reg.Register(dryrun.New())
 	reg.Register(altProvider{})
 	ws := &workspace.Workspace{ID: "ws", Agents: map[string]workspace.AgentDef{"backend": {Name: "backend"}}}
-	return chat.New(ctxbuilder.New(mem), mem, reg, ws, "backend", "dryrun")
+	return chat.New(ctxbuilder.New(mem), mem, reg, ws, "backend", "dryrun", true)
 }
 
 func TestChatSwitchProvider(t *testing.T) {

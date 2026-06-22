@@ -39,6 +39,11 @@ type Spec struct {
 	Format string
 	// Timeout bounds a single invocation; 0 means no timeout.
 	Timeout time.Duration
+	// HealthArgs is the cheap liveness probe run by Health (e.g. ["--version"]).
+	// It must not invoke the model. Empty defaults to ["--version"].
+	HealthArgs []string
+	// HealthTimeout bounds the liveness probe; 0 defaults to 10s.
+	HealthTimeout time.Duration
 }
 
 // CmdProvider runs an agent CLI per its Spec.
@@ -56,6 +61,51 @@ func (p *CmdProvider) Streams() bool { return p.spec.Stream }
 func (p *CmdProvider) Available() bool {
 	_, err := exec.LookPath(p.spec.Bin)
 	return err == nil
+}
+
+// Health verifies the CLI is installed and actually runnable: it resolves the
+// binary on PATH, then runs the cheap liveness probe (HealthArgs, default
+// `--version`) with a short timeout. The probe must not call the model. On
+// success it returns the probe's first output line (typically a version).
+func (p *CmdProvider) Health(ctx context.Context) (string, error) {
+	if _, err := exec.LookPath(p.spec.Bin); err != nil {
+		return "", fmt.Errorf("not installed: %s not on PATH", p.spec.Bin)
+	}
+
+	probe := p.spec.HealthArgs
+	if len(probe) == 0 {
+		probe = []string{"--version"}
+	}
+	timeout := p.spec.HealthTimeout
+	if timeout == 0 {
+		timeout = 10 * time.Second
+	}
+	ctx, cancel := context.WithTimeout(ctx, timeout)
+	defer cancel()
+
+	var stdout, stderr bytes.Buffer
+	cmd := exec.CommandContext(ctx, p.spec.Bin, probe...)
+	cmd.Stdout = &stdout
+	cmd.Stderr = &stderr
+	if err := cmd.Run(); err != nil {
+		msg := strings.TrimSpace(stderr.String())
+		if msg == "" {
+			msg = strings.TrimSpace(stdout.String())
+		}
+		return "", fmt.Errorf("installed but not runnable (%s %s): %w: %s",
+			p.spec.Bin, strings.Join(probe, " "), err, msg)
+	}
+	return firstLine(stdout.String()), nil
+}
+
+// firstLine returns the first non-empty line of s, trimmed.
+func firstLine(s string) string {
+	for _, ln := range strings.Split(s, "\n") {
+		if t := strings.TrimSpace(ln); t != "" {
+			return t
+		}
+	}
+	return ""
 }
 
 // Ask invokes the CLI with the prompt and returns its captured stdout. In
@@ -204,16 +254,22 @@ func withPrompt(args []string, prompt string) []string {
 	return out
 }
 
+// versionProbe is the standard liveness probe for the builtin CLIs: each
+// supports `--version`, which runs the binary without invoking the model.
+var versionProbe = []string{"--version"}
+
 // Builtins are the agent CLIs wired in by default. Workspace config can add to
-// or override these by name.
+// or override these by name. Each declares its `ai health` liveness probe via
+// HealthArgs; override it in workspace.yaml (`health_args:`) for a CLI whose
+// version flag differs.
 func Builtins() []Spec {
 	return []Spec{
 		// claude renders its stream-json events live (text + tool calls).
-		{Name: "claude", Bin: "claude", Args: []string{"-p", "--output-format", "stream-json", "--verbose"}, Stream: true, Format: "stream-json"},
-		{Name: "cursor", Bin: "cursor-agent", Args: []string{"-p"}, Stream: true},
-		{Name: "gemini", Bin: "gemini", Args: []string{"-p"}, Stream: true},
-		{Name: "codex", Bin: "codex", Args: []string{"exec"}, Stream: true},
+		{Name: "claude", Bin: "claude", Args: []string{"-p", "--output-format", "stream-json", "--verbose"}, Stream: true, Format: "stream-json", HealthArgs: versionProbe},
+		{Name: "cursor", Bin: "cursor-agent", Args: []string{"-p"}, Stream: true, HealthArgs: versionProbe},
+		{Name: "gemini", Bin: "gemini", Args: []string{"-p"}, Stream: true, HealthArgs: versionProbe},
+		{Name: "codex", Bin: "codex", Args: []string{"exec"}, Stream: true, HealthArgs: versionProbe},
 		// agy reads the prompt on stdin; its output still streams to the terminal.
-		{Name: "agy", Bin: "agy", Args: []string{"-p"}, Stdin: true, Stream: true},
+		{Name: "agy", Bin: "agy", Args: []string{"-p"}, Stdin: true, Stream: true, HealthArgs: versionProbe},
 	}
 }

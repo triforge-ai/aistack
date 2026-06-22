@@ -1,4 +1,4 @@
-module ai-cli
+module github.com/triforge-ai/aistack
 
 go 1.22.3
 

@@ -15,8 +15,16 @@ type Config struct {
 	Obsidian        string           `yaml:"obsidian"`
 	Storage         StorageConfig    `yaml:"storage"`
 	Embedder        EmbedderConfig   `yaml:"embedder"`
+	Chat            ChatConfig       `yaml:"chat"`
 	Providers       []ProviderConfig `yaml:"providers"`
 	DefaultProvider string           `yaml:"default_provider"`
+}
+
+// ChatConfig tunes the interactive REPL. SaveMemory controls whether each turn
+// is persisted back into memory; nil means "default on" (set `save_memory:
+// false` to keep chat ephemeral and avoid memory bloat / feedback loops).
+type ChatConfig struct {
+	SaveMemory *bool `yaml:"save_memory"`
 }
 
 // ProviderConfig declares an agent CLI backend. It adds to (or overrides by
@@ -30,6 +38,9 @@ type ProviderConfig struct {
 	// Format names the output encoding, e.g. "stream-json" for Claude Code's
 	// event stream (rendered as live progress). Empty means plain text.
 	Format string `yaml:"format"`
+	// HealthArgs overrides the liveness probe used by `ai health` (default
+	// `--version`); useful for a CLI that does not support --version.
+	HealthArgs []string `yaml:"health_args"`
 }
 
 // EmbedderConfig selects the embedding backend. Type defaults to "hash" (no
@@ -97,6 +108,7 @@ func (l *Loader) Load(root string) (*Workspace, error) {
 	}
 	ws.Storage = cfg.Storage
 	ws.Embedder = cfg.Embedder
+	ws.Chat = cfg.Chat
 	ws.Providers = cfg.Providers
 	ws.DefaultProvider = cfg.DefaultProvider
 

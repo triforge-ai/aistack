@@ -7,9 +7,9 @@ package ctxbuilder
 import (
 	"context"
 
-	"ai-cli/internal/memory"
-	"ai-cli/internal/memory/service"
-	"ai-cli/internal/workspace"
+	"github.com/triforge-ai/aistack/internal/memory"
+	"github.com/triforge-ai/aistack/internal/memory/service"
+	"github.com/triforge-ai/aistack/internal/workspace"
 )
 
 // BuildRequest is the input to a context build.

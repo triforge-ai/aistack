@@ -18,8 +18,8 @@ import (
 	"path/filepath"
 	"strings"
 
-	"ai-cli/internal/memory"
-	"ai-cli/internal/memory/service"
+	"github.com/triforge-ai/aistack/internal/memory"
+	"github.com/triforge-ai/aistack/internal/memory/service"
 )
 
 // Source identifies a directory to sync and the logical name it is filed under.

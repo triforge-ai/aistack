@@ -6,7 +6,7 @@ package store
 import (
 	"context"
 
-	"ai-cli/internal/memory"
+	"github.com/triforge-ai/aistack/internal/memory"
 )
 
 // Query narrows a search to a workspace and limits the result set.

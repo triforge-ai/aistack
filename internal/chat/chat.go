@@ -11,11 +11,11 @@ import (
 	"io"
 	"strings"
 
-	"ai-cli/internal/ctxbuilder"
-	"ai-cli/internal/memory"
-	"ai-cli/internal/memory/service"
-	"ai-cli/internal/provider"
-	"ai-cli/internal/workspace"
+	"github.com/triforge-ai/aistack/internal/ctxbuilder"
+	"github.com/triforge-ai/aistack/internal/memory"
+	"github.com/triforge-ai/aistack/internal/memory/service"
+	"github.com/triforge-ai/aistack/internal/provider"
+	"github.com/triforge-ai/aistack/internal/workspace"
 )
 
 // historyWindow caps how many past messages are replayed into each prompt.
@@ -39,13 +39,18 @@ type Session struct {
 	agent    string
 	provider string
 
+	// saveMemory persists each exchange back into memory when true. It can be
+	// toggled at runtime with /save.
+	saveMemory bool
+
 	history  []message
 	lastHits []memory.Memory
 }
 
-// New creates a chat session.
-func New(b ctxbuilder.Builder, mem *service.Service, reg *provider.Registry, ws *workspace.Workspace, agent, prov string) *Session {
-	return &Session{builder: b, memory: mem, providers: reg, ws: ws, agent: agent, provider: prov}
+// New creates a chat session. saveMemory controls whether each turn is persisted
+// back into memory (toggleable at runtime via /save).
+func New(b ctxbuilder.Builder, mem *service.Service, reg *provider.Registry, ws *workspace.Workspace, agent, prov string, saveMemory bool) *Session {
+	return &Session{builder: b, memory: mem, providers: reg, ws: ws, agent: agent, provider: prov, saveMemory: saveMemory}
 }
 
 // Run drives the REPL until EOF (Ctrl-D) or /exit.
@@ -104,6 +109,8 @@ func (s *Session) command(ctx context.Context, out io.Writer, line string) bool 
 		}
 	case "provider":
 		s.showProviders(out)
+	case "save":
+		s.toggleSave(out, rest)
 	case "use":
 		if rest == "" {
 			fmt.Fprintln(out, "usage: /use <provider>")
@@ -111,7 +118,7 @@ func (s *Session) command(ctx context.Context, out io.Writer, line string) bool 
 		}
 		s.switchProvider(out, rest)
 	case "help":
-		fmt.Fprintln(out, "commands: /<provider> [msg]  /use <provider>  /provider  /memory  /reset  /exit")
+		fmt.Fprintln(out, "commands: /<provider> [msg]  /use <provider>  /provider  /memory  /save [on|off]  /reset  /exit")
 	default:
 		// A bare provider name switches; `/<provider> <msg>` is a one-off.
 		if s.providers.Has(name) {
@@ -125,6 +132,30 @@ func (s *Session) command(ctx context.Context, out io.Writer, line string) bool 
 		fmt.Fprintf(out, "unknown command %q — try /help\n", line)
 	}
 	return false
+}
+
+// toggleSave turns persistence of chat turns on/off. With no argument it
+// reports the current state; "on"/"off" set it explicitly.
+func (s *Session) toggleSave(out io.Writer, arg string) {
+	switch strings.ToLower(strings.TrimSpace(arg)) {
+	case "":
+		fmt.Fprintf(out, "memory persistence is %s\n", onOff(s.saveMemory))
+	case "on", "true", "yes":
+		s.saveMemory = true
+		fmt.Fprintln(out, "(memory persistence → on)")
+	case "off", "false", "no":
+		s.saveMemory = false
+		fmt.Fprintln(out, "(memory persistence → off)")
+	default:
+		fmt.Fprintln(out, "usage: /save [on|off]")
+	}
+}
+
+func onOff(b bool) string {
+	if b {
+		return "on"
+	}
+	return "off"
 }
 
 // switchProvider sets the active provider for subsequent turns.
@@ -185,9 +216,10 @@ func (s *Session) turn(ctx context.Context, out io.Writer, msg, providerName str
 	return nil
 }
 
-// remember stores the exchange as a chat memory (best-effort).
+// remember stores the exchange as a chat memory (best-effort). It is a no-op
+// when persistence is disabled (see /save).
 func (s *Session) remember(ctx context.Context, user, assistant string) {
-	if strings.TrimSpace(assistant) == "" {
+	if !s.saveMemory || strings.TrimSpace(assistant) == "" {
 		return
 	}
 	_, _ = s.memory.Add(ctx, service.AddInput{

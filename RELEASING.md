@@ -50,6 +50,6 @@ goreleaser check           # validate .goreleaser.yaml
   `-ldflags "-X main.version=..."` and shown by `ai version`.
 - Homebrew **casks** are macOS-only; Linux users install from the release
   tarball on the Releases page.
-- `go install` is not wired yet: the module path in `go.mod` is `ai-cli` (a local
-  name). To enable `go install github.com/triforge-ai/aistack/cmd/ai@latest`,
-  rename the module to that path and update imports.
+- `go install` works: the module path is `github.com/triforge-ai/aistack`, so
+  `go install github.com/triforge-ai/aistack/cmd/ai@latest` installs the `ai`
+  binary directly from source (pure-Go deps, `CGO_ENABLED=0`).
