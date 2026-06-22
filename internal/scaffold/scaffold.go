@@ -51,6 +51,19 @@ var files = []file{
 	{"skills/review.md", "# Skill: code review\n\nReview diffs for correctness, then for simplification and reuse.\n"},
 	{"agents/backend.yaml", "name: backend\nprovider: dryrun\nsystem: You are a senior backend engineer. Be precise and pragmatic.\nrules:\n  - coding\nskills:\n  - review\n"},
 	{"documents/getting-started.md", "# Getting started\n\nThis workspace stores documents here. Run `ai memory sync` to index them,\nthen `ai memory search` or `ai run` to retrieve them semantically.\n"},
+	{"recipes/summarize-changes.yaml", `# A sample workflow. Run with: ai recipe run summarize-changes --allow-shell
+name: summarize-changes
+steps:
+  - id: diff
+    run: shell
+    cmd: git diff --stat HEAD~1 2>/dev/null || echo "no previous commit"
+  - id: summary
+    run: agent
+    agent: backend
+    prompt: |
+      Summarize these repository changes for a changelog:
+      {{ step "diff" }}
+`},
 	{"tasks/.gitkeep", ""},
 	{"memory/.gitkeep", ""},
 }

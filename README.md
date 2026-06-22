@@ -192,6 +192,7 @@ uses hybrid when the backend supports it.
 | `ai memory sync [name]` | incrementally sync `documents/` (+ obsidian) into memory |
 | `ai db <up\|down\|status\|ping>` | manage the pgvector database via docker compose |
 | `ai providers` | list agent providers and whether their CLI is installed |
+| `ai recipe <list\|show\|run>` | run declarative multi-step workflows (`--var`, `--allow-shell`) |
 | `ai health [provider...]` | check provider CLIs are installed **and runnable** (`--live` pings end-to-end) |
 
 Flags for `run`: `--provider <name>`, `--limit <n>`.
@@ -293,6 +294,39 @@ backend> /provider                         # show active + available providers
 never fire unless you ask — important since `cursor`/`claude` can edit files and
 run shell commands.
 
+### Recipes
+
+A recipe is a declarative, multi-step workflow under `.ai/recipes/<name>.yaml`.
+Each step runs a `shell` command or an `agent`, and a step's output can be
+templated into later steps with `{{ step "id" }}` (and `--var` values via
+`{{ var "name" }}`) — so a pipeline like *diff → summarize → write commit
+message* is data, not code.
+
+```yaml
+# .ai/recipes/summarize-changes.yaml
+name: summarize-changes
+steps:
+  - id: diff
+    run: shell
+    cmd: git diff --stat HEAD~1
+  - id: summary
+    run: agent
+    agent: backend
+    prompt: |
+      Summarize these changes for a changelog:
+      {{ step "diff" }}
+```
+
+```bash
+ai recipe list
+ai recipe show summarize-changes
+ai recipe run summarize-changes --allow-shell      # shell steps are opt-in
+ai recipe run release-notes --var tag=v1.2.0
+```
+
+Shell steps run arbitrary commands, so they only execute with `--allow-shell`;
+agent steps obey the normal provider resolution (default `dryrun`).
+
 ## The `.ai/` workspace
 
 `.ai/` is the canonical source of truth; the vector index only mirrors it.
@@ -304,6 +338,8 @@ run shell commands.
 ├── skills/*.md         reusable capabilities
 ├── agents/*.yaml       agent definitions (provider, rules, skills, system)
 ├── documents/          indexed knowledge
+├── recipes/*.yaml      declarative multi-step workflows
+├── sessions/           saved, resumable chat transcripts
 ├── tasks/
 └── memory/
 ```
@@ -318,6 +354,10 @@ Phase 1–2 (memory logic + Obsidian sync) is done. Storage and providers next.
 - [x] `OllamaEmbedder` (fully-local embeddings) + embedding cache
 - [x] Hybrid search (BM25 + vector, RRF) with HNSW + GIN indexes on pgvector
 - [x] Pluggable agent CLI providers (claude / cursor / agy / any, via config)
+- [x] `ai health` — provider CLI liveness checks
+- [x] Resumable chat sessions (`ai chat --resume`, `ai session …`)
+- [x] Recipe engine — declarative multi-step workflows (`ai recipe run`)
+- [ ] Planning mode (`ai plan`) — draft → review → run as a recipe
+- [ ] Scheduled tasks — run recipes on a cron via launchd/cron
 - [ ] Optional cross-encoder rerank of the fused top-K
-- [ ] `ai task` and git integration (`ai review` / `ai commit` / `ai pr`)
 ```

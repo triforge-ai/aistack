@@ -15,6 +15,7 @@
 //	ai memory sync [name]               sync documents/ and obsidian into memory
 //	ai db <up|down|status|ping>         manage the pgvector database
 //	ai providers                        list agent providers and availability
+//	ai recipe <list|show|run>           run declarative multi-step workflows
 //	ai health [provider...] [--live]    check provider CLIs are installed/runnable
 //	ai version                          print version
 //
@@ -64,6 +65,8 @@ func dispatch(cmd string, args []string) error {
 		return cmdDB(args)
 	case "providers":
 		return cmdProviders()
+	case "recipe", "recipes":
+		return cmdRecipe(args)
 	case "health", "doctor":
 		return cmdHealth(args)
 	case "version", "--version", "-v":
@@ -97,6 +100,8 @@ func usage() {
   ai memory sync [name]         sync documents/ + obsidian into memory
   ai db <up|down|status|ping>   manage the pgvector database (docker compose)
   ai providers                  list agent providers and availability
+  ai recipe <list|show|run>     run declarative multi-step workflows
+        run <name> [--var k=v] [--allow-shell]
   ai health [provider...]       check provider CLIs are installed + runnable
         [--live]                  also send a tiny prompt end-to-end
   ai version

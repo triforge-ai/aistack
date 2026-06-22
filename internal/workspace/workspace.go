@@ -54,6 +54,11 @@ func (w *Workspace) SessionsDir() string {
 	return filepath.Join(w.Root, "sessions")
 }
 
+// RecipesDir returns the directory holding declarative workflow recipes.
+func (w *Workspace) RecipesDir() string {
+	return filepath.Join(w.Root, "recipes")
+}
+
 // CacheDir returns the workspace's derived-data directory (memory store, sync
 // state). It is safe to delete; it is rebuilt from canonical sources.
 func (w *Workspace) CacheDir() string {
