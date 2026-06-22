@@ -15,6 +15,7 @@ import (
 	"github.com/triforge-ai/aistack/internal/memory"
 	"github.com/triforge-ai/aistack/internal/memory/service"
 	"github.com/triforge-ai/aistack/internal/provider"
+	"github.com/triforge-ai/aistack/internal/session"
 	"github.com/triforge-ai/aistack/internal/workspace"
 )
 
@@ -40,8 +41,13 @@ type Session struct {
 	provider string
 
 	// saveMemory persists each exchange back into memory when true. It can be
-	// toggled at runtime with /save.
+	// toggled at runtime with /remember.
 	saveMemory bool
+
+	// sessions/record persist the verbatim transcript so it can be resumed.
+	// Both are nil when session persistence is disabled (e.g. in tests).
+	sessions session.Store
+	record   *session.Record
 
 	history  []message
 	lastHits []memory.Memory
@@ -53,9 +59,38 @@ func New(b ctxbuilder.Builder, mem *service.Service, reg *provider.Registry, ws 
 	return &Session{builder: b, memory: mem, providers: reg, ws: ws, agent: agent, provider: prov, saveMemory: saveMemory}
 }
 
+// Persist enables session persistence: any messages already on rec seed the
+// in-memory transcript (so a resumed session continues where it left off), and
+// every later turn is appended to rec and saved through store.
+func (s *Session) Persist(store session.Store, rec *session.Record) {
+	s.sessions = store
+	s.record = rec
+	for _, m := range rec.Messages {
+		s.history = append(s.history, message{role: displayRole(m.Role, m.Provider), text: m.Text})
+	}
+}
+
+// displayRole maps a stored session role to the transcript label used in prompts.
+func displayRole(role, prov string) string {
+	if role == "assistant" {
+		if prov != "" {
+			return "Assistant (" + prov + ")"
+		}
+		return "Assistant"
+	}
+	return "User"
+}
+
 // Run drives the REPL until EOF (Ctrl-D) or /exit.
 func (s *Session) Run(ctx context.Context, in io.Reader, out io.Writer) error {
 	fmt.Fprintf(out, "chat · agent=%s · provider=%s · workspace=%s\n", s.agent, s.provider, s.ws.ID)
+	if s.record != nil {
+		fmt.Fprintf(out, "session: %s (id %s)", s.record.Name, s.record.ID[:8])
+		if len(s.record.Messages) > 0 {
+			fmt.Fprintf(out, " · resumed %d messages", len(s.record.Messages))
+		}
+		fmt.Fprintln(out)
+	}
 	fmt.Fprintln(out, "switch model with /<provider> or /use; /help for more. Ctrl-D to quit.")
 
 	sc := bufio.NewScanner(in)
@@ -109,8 +144,12 @@ func (s *Session) command(ctx context.Context, out io.Writer, line string) bool 
 		}
 	case "provider":
 		s.showProviders(out)
-	case "save":
+	case "remember":
 		s.toggleSave(out, rest)
+	case "session":
+		s.showSession(out)
+	case "sessions":
+		s.listSessions(ctx, out)
 	case "use":
 		if rest == "" {
 			fmt.Fprintln(out, "usage: /use <provider>")
@@ -118,7 +157,7 @@ func (s *Session) command(ctx context.Context, out io.Writer, line string) bool 
 		}
 		s.switchProvider(out, rest)
 	case "help":
-		fmt.Fprintln(out, "commands: /<provider> [msg]  /use <provider>  /provider  /memory  /save [on|off]  /reset  /exit")
+		fmt.Fprintln(out, "commands: /<provider> [msg]  /use <provider>  /provider  /memory  /remember [on|off]  /session  /sessions  /reset  /exit")
 	default:
 		// A bare provider name switches; `/<provider> <msg>` is a one-off.
 		if s.providers.Has(name) {
@@ -147,7 +186,7 @@ func (s *Session) toggleSave(out io.Writer, arg string) {
 		s.saveMemory = false
 		fmt.Fprintln(out, "(memory persistence → off)")
 	default:
-		fmt.Fprintln(out, "usage: /save [on|off]")
+		fmt.Fprintln(out, "usage: /remember [on|off]")
 	}
 }
 
@@ -170,6 +209,39 @@ func (s *Session) switchProvider(out io.Writer, name string) {
 
 func (s *Session) showProviders(out io.Writer) {
 	fmt.Fprintf(out, "active: %s\navailable: %s\n", s.provider, strings.Join(s.providers.Names(), ", "))
+}
+
+// showSession reports the active session (or that persistence is off).
+func (s *Session) showSession(out io.Writer) {
+	if s.record == nil {
+		fmt.Fprintln(out, "(session persistence is off — start with `ai chat --session <name>`)")
+		return
+	}
+	fmt.Fprintf(out, "session: %s  (id %s)  ·  %d messages\n", s.record.Name, s.record.ID, len(s.record.Messages))
+}
+
+// listSessions lists the workspace's saved sessions, most recent first.
+func (s *Session) listSessions(ctx context.Context, out io.Writer) {
+	if s.sessions == nil {
+		fmt.Fprintln(out, "(session persistence is off)")
+		return
+	}
+	recs, err := s.sessions.List(ctx, s.ws.ID)
+	if err != nil {
+		fmt.Fprintln(out, "error:", err)
+		return
+	}
+	if len(recs) == 0 {
+		fmt.Fprintln(out, "(no saved sessions)")
+		return
+	}
+	for _, r := range recs {
+		marker := ""
+		if s.record != nil && r.ID == s.record.ID {
+			marker = " *"
+		}
+		fmt.Fprintf(out, "  %s  %-20s %d msgs%s\n", r.ID[:8], r.Name, len(r.Messages), marker)
+	}
 }
 
 func (s *Session) providerList() string {
@@ -213,7 +285,22 @@ func (s *Session) turn(ctx context.Context, out io.Writer, msg, providerName str
 		message{"Assistant (" + providerName + ")", resp},
 	)
 	s.remember(ctx, msg, resp)
+	s.persistTurn(ctx, out, msg, resp, providerName)
 	return nil
+}
+
+// persistTurn appends the exchange to the active session record and saves it
+// (best-effort: a save failure is surfaced but does not abort the chat).
+func (s *Session) persistTurn(ctx context.Context, out io.Writer, user, assistant, providerName string) {
+	if s.record == nil || s.sessions == nil {
+		return
+	}
+	s.record.Append(session.Message{Role: "user", Text: user})
+	s.record.Append(session.Message{Role: "assistant", Provider: providerName, Text: assistant})
+	s.record.Provider = s.provider
+	if err := s.sessions.Save(ctx, *s.record); err != nil {
+		fmt.Fprintln(out, "warning: could not save session:", err)
+	}
 }
 
 // remember stores the exchange as a chat memory (best-effort). It is a no-op

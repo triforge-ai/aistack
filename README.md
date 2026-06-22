@@ -182,7 +182,8 @@ uses hybrid when the backend supports it.
 | `ai init [dir]` | scaffold a `.ai/` workspace |
 | `ai status` | show the loaded workspace |
 | `ai run <agent> <task...>` | build context and dispatch to a provider |
-| `ai chat [agent]` | interactive chat REPL with per-turn memory recall |
+| `ai chat [agent]` | interactive chat REPL with per-turn memory recall (`--session`/`--resume` to persist) |
+| `ai session <list\|show\|rm>` | manage saved, resumable chat sessions |
 | `ai context <agent> <task...>` | print the assembled prompt only |
 | `ai memory add <text...>` | add a note (or pipe text via stdin) |
 | `ai memory search <query...>` | semantic search over workspace memory |
@@ -246,18 +247,31 @@ ai chat backend
 backend> how should I add caching here?
   …answer streams in…
 backend> /memory      # show what was retrieved for the last message
-backend> /save off    # stop persisting this session's turns to memory
+backend> /remember off # stop indexing this session's turns into memory
+backend> /sessions    # list saved sessions in this workspace
 backend> /reset       # clear the conversation
 backend> /exit
 ```
 
-By default every turn is stored back as a `chat` memory. To keep a session
-ephemeral, toggle it at runtime with `/save off`, or disable persistence for the
-workspace in `.ai/workspace.yaml`:
+By default every turn is indexed back into the `chat` memory for semantic
+recall. To keep a session out of the index, toggle it at runtime with
+`/remember off`, or disable it for the workspace in `.ai/workspace.yaml`:
 
 ```yaml
 chat:
   save_memory: false   # default is true
+```
+
+**Resumable sessions.** Each chat is also saved verbatim as a session under
+`.ai/sessions/` so you can pick it back up after closing the terminal — separate
+from the embedded memory index:
+
+```
+ai chat backend --session refactor   # start (or reopen) a named session
+ai chat --resume 1a2b3c4d             # resume by id or name (prefix is fine)
+ai session list                       # id, name, #messages, last updated
+ai session show 1a2b3c4d              # print the full transcript
+ai session rm 1a2b3c4d
 ```
 
 **Multi-provider in one session.** Switch the model mid-chat without losing the
