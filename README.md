@@ -10,6 +10,34 @@ ai run backend "implement storage"   ✅  agent-driven
 
 Design docs: [`OVERVIEW.md`](OVERVIEW.md), [`MEMORY_CONTEXT_BUILDER.md`](MEMORY_CONTEXT_BUILDER.md).
 
+## Why CLI providers?
+
+`ai` treats installed agent CLIs (Claude Code, Codex, Cursor, Gemini, …) as
+**interchangeable backends behind one interface**, rather than calling provider
+APIs directly. If you already pay for those CLIs, you reuse that subscription —
+no separate API tokens or billing.
+
+What this buys you today:
+
+- **One interface, many models.** The same commands work regardless of backend;
+  switch with a config change (`default_provider`) or per agent — no memorizing
+  `claude …` vs `gemini …` vs `codex …`. `ai health` checks they're installed and
+  runnable.
+- **Multi-model in one session.** In `ai chat`, send a single message to any
+  provider (`/gemini …`) or switch the active one (`/use codex`) — the shared
+  transcript and retrieved memory carry across models, so one can build on
+  another's output (plan with one, implement with another, review with a third).
+- **Workspace memory.** Every chat turn and synced document feeds a local
+  semantic index (`ai memory …`), so relevant context is recalled across runs —
+  not just within the current terminal session.
+
+**Roadmap** (not built yet): named/resumable sessions with export, recipes and
+scheduled/automated workflows, and a planning mode — see [`OVERVIEW.md`](OVERVIEW.md).
+
+If you only ever use one model for simple chat, running that provider's CLI
+directly is lighter. `ai` earns its keep when you juggle multiple providers, want
+workspace-wide memory, or build repeatable multi-model workflows.
+
 ## Status — v0.4 (fully-local, offline-first)
 
 The pipeline is **offline-first with no cloud or API-key dependency**. It runs
@@ -154,7 +182,8 @@ uses hybrid when the backend supports it.
 | `ai init [dir]` | scaffold a `.ai/` workspace |
 | `ai status` | show the loaded workspace |
 | `ai run <agent> <task...>` | build context and dispatch to a provider |
-| `ai chat [agent]` | interactive chat REPL with per-turn memory recall |
+| `ai chat [agent]` | interactive chat REPL with per-turn memory recall (`--session`/`--resume` to persist) |
+| `ai session <list\|show\|rm>` | manage saved, resumable chat sessions |
 | `ai context <agent> <task...>` | print the assembled prompt only |
 | `ai memory add <text...>` | add a note (or pipe text via stdin) |
 | `ai memory search <query...>` | semantic search over workspace memory |
@@ -218,18 +247,33 @@ ai chat backend
 backend> how should I add caching here?
   …answer streams in…
 backend> /memory      # show what was retrieved for the last message
-backend> /save off    # stop persisting this session's turns to memory
+backend> /remember off # stop indexing this session's turns into memory
+backend> /sessions    # list saved sessions in this workspace
 backend> /reset       # clear the conversation
 backend> /exit
 ```
 
-By default every turn is stored back as a `chat` memory. To keep a session
-ephemeral, toggle it at runtime with `/save off`, or disable persistence for the
-workspace in `.ai/workspace.yaml`:
+By default every turn is indexed back into the `chat` memory for semantic
+recall. To keep a session out of the index, toggle it at runtime with
+`/remember off`, or disable it for the workspace in `.ai/workspace.yaml`:
 
 ```yaml
 chat:
   save_memory: false   # default is true
+```
+
+**Resumable sessions.** Each chat is also saved verbatim as a session under
+`.ai/sessions/` so you can pick it back up after closing the terminal — separate
+from the embedded memory index:
+
+```
+ai chat backend --session refactor   # start (or reopen) a named session
+ai chat --resume 1a2b3c4d             # resume by id or name (prefix is fine)
+ai session list                       # id, name, #messages, last updated
+ai session show 1a2b3c4d              # print the full transcript
+ai session export 1a2b3c4d --format md > chat.md
+ai session export 1a2b3c4d --format json --out chat.json
+ai session rm 1a2b3c4d
 ```
 
 **Multi-provider in one session.** Switch the model mid-chat without losing the

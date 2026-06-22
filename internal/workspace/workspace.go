@@ -47,6 +47,13 @@ func (w *Workspace) DocumentsDir() string {
 	return filepath.Join(w.Root, "documents")
 }
 
+// SessionsDir returns the directory where chat sessions are persisted. Sessions
+// are canonical conversation records (not derived), so they live alongside the
+// other source-of-truth dirs, not under .cache/.
+func (w *Workspace) SessionsDir() string {
+	return filepath.Join(w.Root, "sessions")
+}
+
 // CacheDir returns the workspace's derived-data directory (memory store, sync
 // state). It is safe to delete; it is rebuilt from canonical sources.
 func (w *Workspace) CacheDir() string {

@@ -7,6 +7,7 @@
 //	ai run <agent> <task...>            run an agent against a task
 //	ai context <agent> <task...>        print the assembled prompt only
 //	ai chat [agent]                     interactive chat REPL with memory recall
+//	ai session <list|show|rm>           manage saved chat sessions
 //	ai memory add <text...>             add a note to memory (or pipe via stdin)
 //	ai memory search <query...>         search workspace memory
 //	ai memory list                      list stored memories
@@ -53,6 +54,8 @@ func dispatch(cmd string, args []string) error {
 		return cmdRun(args)
 	case "chat":
 		return cmdChat(args)
+	case "session", "sessions":
+		return cmdSession(args)
 	case "context":
 		return cmdContext(args)
 	case "memory":
@@ -83,7 +86,9 @@ func usage() {
   ai run <agent> <task...>      run an agent against a task
         [--provider <name>] [--limit <n>]
   ai chat [agent]               interactive chat REPL with memory recall
-        [--provider <name>]
+        [--provider <name>] [--session <name>] [--resume <id>] [--new]
+  ai session <list|show|rm>     manage saved chat sessions
+  ai session export <id>        export a session [--format md|json] [--out <file>]
   ai context <agent> <task...>  print the assembled prompt only
   ai memory add <text...>       add a note (or pipe text via stdin)
   ai memory search <query...>   search workspace memory [--limit <n>]

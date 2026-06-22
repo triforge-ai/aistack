@@ -14,6 +14,7 @@ import (
 	"github.com/triforge-ai/aistack/internal/memory/store"
 	"github.com/triforge-ai/aistack/internal/provider"
 	"github.com/triforge-ai/aistack/internal/provider/dryrun"
+	"github.com/triforge-ai/aistack/internal/session"
 	"github.com/triforge-ai/aistack/internal/workspace"
 )
 
@@ -84,8 +85,8 @@ func TestChatSaveOffDoesNotPersist(t *testing.T) {
 	ctx := context.Background()
 	s, mem := newSession(t)
 
-	// /save off must stop the exchange from being written to memory.
-	in := strings.NewReader("/save off\nremember this\n/exit\n")
+	// /remember off must stop the exchange from being written to memory.
+	in := strings.NewReader("/remember off\nremember this\n/exit\n")
 	if err := s.Run(ctx, in, &bytes.Buffer{}); err != nil {
 		t.Fatal(err)
 	}
@@ -98,6 +99,44 @@ func TestChatSaveOffDoesNotPersist(t *testing.T) {
 		if m.Type == memory.TypeChat {
 			t.Fatalf("expected no chat memory after /save off, found: %q", m.Content)
 		}
+	}
+}
+
+func TestChatPersistsAndResumesSession(t *testing.T) {
+	ctx := context.Background()
+	store := session.NewFileStore(t.TempDir())
+
+	// First session: one turn, persisted.
+	s1, _ := newSession(t)
+	rec := session.New("work", "ws", "backend", "dryrun")
+	s1.Persist(store, &rec)
+	if err := s1.Run(ctx, strings.NewReader("first message\n/exit\n"), &bytes.Buffer{}); err != nil {
+		t.Fatal(err)
+	}
+
+	saved, err := store.Load(ctx, rec.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(saved.Messages) != 2 || saved.Messages[0].Text != "first message" {
+		t.Fatalf("turn not persisted to session: %+v", saved.Messages)
+	}
+
+	// Resume: a new Session seeded from the saved record must replay the prior
+	// turn into the assembled prompt.
+	s2, _ := newSession(t)
+	s2.Persist(store, &saved)
+	var out bytes.Buffer
+	if err := s2.Run(ctx, strings.NewReader("second message\n/exit\n"), &out); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(out.String(), "first message") {
+		t.Fatalf("resumed session did not replay prior history:\n%s", out.String())
+	}
+
+	reloaded, _ := store.Load(ctx, rec.ID)
+	if len(reloaded.Messages) != 4 {
+		t.Fatalf("resumed turn not appended: want 4 messages, got %d", len(reloaded.Messages))
 	}
 }
 
