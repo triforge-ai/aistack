@@ -41,6 +41,9 @@ type ProviderConfig struct {
 	// HealthArgs overrides the liveness probe used by `ai health` (default
 	// `--version`); useful for a CLI that does not support --version.
 	HealthArgs []string `yaml:"health_args"`
+	// WriteArgs are flags added in write mode (`--write`) to let the agent modify
+	// files (e.g. claude: ["--permission-mode", "acceptEdits"]).
+	WriteArgs []string `yaml:"write_args"`
 }
 
 // EmbedderConfig selects the embedding backend. Type defaults to "hash" (no

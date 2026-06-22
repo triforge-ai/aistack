@@ -87,9 +87,9 @@ func usage() {
   ai init [dir]                 scaffold a .ai/ workspace
   ai status                     show the loaded workspace
   ai run <agent> <task...>      run an agent against a task
-        [--provider <name>] [--limit <n>]
+        [--provider <name>] [--limit <n>] [--write]
   ai chat [agent]               interactive chat REPL with memory recall
-        [--provider <name>] [--session <name>] [--resume <id>] [--new]
+        [--provider <name>] [--session <name>] [--resume <id>] [--new] [--write]
   ai session <list|show|rm>     manage saved chat sessions
   ai session export <id>        export a session [--format md|json] [--out <file>]
   ai context <agent> <task...>  print the assembled prompt only

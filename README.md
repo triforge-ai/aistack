@@ -243,6 +243,23 @@ provider: cursor
 Resolution order is **`--provider` flag → agent definition → `default_provider` →
 `dryrun`**.
 
+#### Letting an agent edit files (`--write`)
+
+By default the CLI agents run **read-only**: claude/cursor/gemini/codex are
+invoked in headless/print mode, so when an agent "writes" a file the edit is
+silently discarded (the agent may still *claim* success). Pass `--write` (alias
+`--yolo`) to grant write permission:
+
+```bash
+ai run backend "create Calculator.java" --provider claude --write
+ai chat backend --provider cursor --write
+```
+
+`--write` appends each provider's permission flag (claude
+`--permission-mode acceptEdits`, cursor `-f`, gemini `--yolo`, codex
+`--full-auto`); override per provider with `write_args:` in `workspace.yaml`.
+Without it, chat prints a one-line read-only reminder so you're never misled.
+
 ### Chat
 
 `ai chat [agent]` is an interactive REPL on top of the memory engine. Each turn

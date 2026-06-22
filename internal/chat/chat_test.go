@@ -50,7 +50,7 @@ func TestChatRetrievesMemoryAndAssembles(t *testing.T) {
 	}
 
 	got := out.String()
-	for _, want := range []string{"you are backend", "be precise", "caching uses an LRU", "[USER]", "how should I add caching?"} {
+	for _, want := range []string{"you are backend", "be precise", "caching uses an LRU", "[TASK]", "how should I add caching?"} {
 		if !strings.Contains(got, want) {
 			t.Fatalf("output missing %q:\n%s", want, got)
 		}
@@ -137,6 +137,110 @@ func TestChatPersistsAndResumesSession(t *testing.T) {
 	reloaded, _ := store.Load(ctx, rec.ID)
 	if len(reloaded.Messages) != 4 {
 		t.Fatalf("resumed turn not appended: want 4 messages, got %d", len(reloaded.Messages))
+	}
+}
+
+// writableProv is a fake provider that can be granted write permission.
+type writableProv struct{ wrote bool }
+
+func (writableProv) Name() string { return "wprov" }
+func (p writableProv) Ask(context.Context, string) (string, error) {
+	if p.wrote {
+		return "WROTE", nil
+	}
+	return "READONLY", nil
+}
+func (writableProv) CanWrite() bool               { return true }
+func (writableProv) WithWrite() provider.Provider { return writableProv{wrote: true} }
+
+func newWritableSession(t *testing.T) *chat.Session {
+	t.Helper()
+	mem := service.New(store.NewMemoryStore(), embed.NewHashEmbedder(64))
+	reg := provider.NewRegistry()
+	reg.Register(writableProv{})
+	ws := &workspace.Workspace{ID: "ws", Agents: map[string]workspace.AgentDef{"backend": {Name: "backend"}}}
+	return chat.New(ctxbuilder.New(mem), mem, reg, ws, "backend", "wprov", false)
+}
+
+func TestChatReadOnlyHint(t *testing.T) {
+	var out bytes.Buffer
+	if err := newWritableSession(t).Run(context.Background(), strings.NewReader("/exit\n"), &out); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(out.String(), "read-only") {
+		t.Fatalf("expected a read-only warning for a write-capable provider:\n%s", out.String())
+	}
+}
+
+func TestChatWriteModeWraps(t *testing.T) {
+	var out bytes.Buffer
+	s := newWritableSession(t)
+	s.EnableWrite()
+	if err := s.Run(context.Background(), strings.NewReader("do it\n/exit\n"), &out); err != nil {
+		t.Fatal(err)
+	}
+	got := out.String()
+	if !strings.Contains(got, "write mode ON") {
+		t.Fatalf("expected write-mode banner:\n%s", got)
+	}
+	if !strings.Contains(got, "WROTE") {
+		t.Fatalf("write mode should use the write variant (WROTE):\n%s", got)
+	}
+}
+
+func TestChatAgentCommand(t *testing.T) {
+	var out bytes.Buffer
+	s, _ := newSession(t)
+	if err := s.Run(context.Background(), strings.NewReader("/agent\n/exit\n"), &out); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(out.String(), "agent: backend") {
+		t.Fatalf("/agent should report the current agent:\n%s", out.String())
+	}
+}
+
+// longProv returns a very long reply to exercise chat-memory truncation.
+type longProv struct{}
+
+func (longProv) Name() string                                { return "long" }
+func (longProv) Ask(context.Context, string) (string, error) { return strings.Repeat("x", 5000), nil }
+
+func TestChatTruncatesStoredMemory(t *testing.T) {
+	ctx := context.Background()
+	mem := service.New(store.NewMemoryStore(), embed.NewHashEmbedder(64))
+	reg := provider.NewRegistry()
+	reg.Register(longProv{})
+	ws := &workspace.Workspace{ID: "ws", Agents: map[string]workspace.AgentDef{"backend": {Name: "backend"}}}
+	s := chat.New(ctxbuilder.New(mem), mem, reg, ws, "backend", "long", true)
+
+	if err := s.Run(ctx, strings.NewReader("hi\n/exit\n"), &bytes.Buffer{}); err != nil {
+		t.Fatal(err)
+	}
+
+	hits, err := mem.List(ctx, "ws")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var total int
+	var anyChat, marker bool
+	for _, m := range hits {
+		if m.Type != memory.TypeChat {
+			continue
+		}
+		anyChat = true
+		total += len([]rune(m.Content))
+		if strings.Contains(m.Content, "truncated") {
+			marker = true
+		}
+	}
+	if !anyChat {
+		t.Fatal("expected a chat memory to be stored")
+	}
+	if !marker {
+		t.Fatal("a 5000-char reply should be truncated with a marker")
+	}
+	if total > 2000 { // ~1500 cap + framing, far below the raw 5000
+		t.Fatalf("stored chat memory not capped: %d runes total", total)
 	}
 }
 

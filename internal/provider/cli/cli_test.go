@@ -97,6 +97,39 @@ func TestBuiltinsDeclareVersionProbe(t *testing.T) {
 	}
 }
 
+func TestWriteVariant(t *testing.T) {
+	// `echo base W p` — WithWrite appends WriteArgs before the prompt.
+	base := New(Spec{Name: "fake", Bin: "echo", Args: []string{"base"}, WriteArgs: []string{"W"}})
+	if !base.CanWrite() {
+		t.Fatal("CanWrite should be true when WriteArgs are set")
+	}
+	got, err := base.WithWrite().Ask(context.Background(), "p")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got != "base W p" {
+		t.Fatalf("write variant args = %q, want %q", got, "base W p")
+	}
+	// The base provider stays read-only (no write flag).
+	if ro, _ := base.Ask(context.Background(), "p"); ro != "base p" {
+		t.Fatalf("base provider = %q, want %q", ro, "base p")
+	}
+
+	plain := New(Spec{Name: "f", Bin: "echo"})
+	if plain.CanWrite() {
+		t.Fatal("CanWrite should be false without WriteArgs")
+	}
+}
+
+func TestBuiltinsWriteArgs(t *testing.T) {
+	want := map[string]bool{"claude": true, "cursor": true, "gemini": true, "codex": true, "agy": false}
+	for _, s := range Builtins() {
+		if got := len(s.WriteArgs) > 0; got != want[s.Name] {
+			t.Errorf("builtin %q WriteArgs present = %v, want %v", s.Name, got, want[s.Name])
+		}
+	}
+}
+
 func TestErrorIncludesStderr(t *testing.T) {
 	// `false` exits non-zero with no output.
 	p := New(Spec{Name: "fake", Bin: "false"})

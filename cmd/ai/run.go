@@ -7,7 +7,9 @@ import (
 	"strings"
 
 	"github.com/triforge-ai/aistack/internal/agent"
+	"github.com/triforge-ai/aistack/internal/app"
 	"github.com/triforge-ai/aistack/internal/chat"
+	"github.com/triforge-ai/aistack/internal/provider"
 	"github.com/triforge-ai/aistack/internal/session"
 	"github.com/triforge-ai/aistack/internal/workspace"
 )
@@ -24,6 +26,7 @@ func cmdRun(args []string) error {
 	if err != nil {
 		return err
 	}
+	writeHint(a, ws, pos[0], opts.provider, opts.write)
 	res, err := a.Runner.Run(context.Background(), runRequest(ws, pos[0], strings.Join(pos[1:], " "), opts))
 	if err != nil {
 		return err
@@ -39,6 +42,7 @@ func cmdRun(args []string) error {
 func cmdChat(args []string) error {
 	var providerOverride, sessionName, resumeID string
 	forceNew := false
+	writeMode := false
 	var pos []string
 	for i := 0; i < len(args); i++ {
 		switch args[i] {
@@ -48,6 +52,8 @@ func cmdChat(args []string) error {
 			}
 			i++
 			providerOverride = args[i]
+		case "--write", "--yolo":
+			writeMode = true
 		case "--session":
 			if i+1 >= len(args) {
 				return fmt.Errorf("--session needs a value")
@@ -85,6 +91,9 @@ func cmdChat(args []string) error {
 
 	sess := chat.New(a.Builder, a.Memory, a.Provider, ws, agentName, prov, ws.SaveChatMemory())
 	sess.Persist(store, rec)
+	if writeMode {
+		sess.EnableWrite()
+	}
 	return sess.Run(context.Background(), os.Stdin, os.Stdout)
 }
 
@@ -148,5 +157,22 @@ func runRequest(ws *workspace.Workspace, agentName, task string, opts runOpts) a
 		Task:             task,
 		ProviderOverride: opts.provider,
 		MemoryLimit:      opts.limit,
+		Write:            opts.write,
+	}
+}
+
+// writeHint warns, on a write-capable provider that is running read-only, that
+// file edits will be silently discarded unless --write is passed. It returns the
+// resolved provider name for reuse.
+func writeHint(a *app.App, ws *workspace.Workspace, agentName, override string, write bool) {
+	if write {
+		return
+	}
+	name := a.Runner.ResolveProvider(ws, agentName, override)
+	if p, err := a.Provider.Get(name); err == nil {
+		if w, ok := p.(provider.Writable); ok && w.CanWrite() {
+			fmt.Fprintf(os.Stderr,
+				"note: %s runs read-only — file edits won't be saved. Re-run with --write to let it modify files.\n", name)
+		}
 	}
 }

@@ -33,6 +33,17 @@ func Assemble(c Context) string {
 		section("MEMORY", mems)
 	}
 
+	if len(c.History) > 0 {
+		b.WriteString("[CONVERSATION SO FAR]\n")
+		for _, e := range c.History {
+			b.WriteString(e.Role)
+			b.WriteString(": ")
+			b.WriteString(e.Text)
+			b.WriteString("\n")
+		}
+		b.WriteString("\n")
+	}
+
 	b.WriteString("[TASK]\n")
 	b.WriteString(c.Task)
 	b.WriteString("\n")

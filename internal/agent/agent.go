@@ -33,6 +33,9 @@ type RunRequest struct {
 	// ProviderOverride forces a specific provider regardless of the agent def.
 	ProviderOverride string
 	MemoryLimit      int
+	// Write grants the provider permission to modify files / run tools (for CLI
+	// agents that otherwise run read-only).
+	Write bool
 }
 
 // Result is the outcome of a run.
@@ -63,6 +66,11 @@ func (r *Runner) Run(ctx context.Context, req RunRequest) (Result, error) {
 	prov, err := r.providers.Get(name)
 	if err != nil {
 		return Result{}, err
+	}
+	if req.Write {
+		if w, ok := prov.(provider.Writable); ok && w.CanWrite() {
+			prov = w.WithWrite()
+		}
 	}
 
 	streamed := false
