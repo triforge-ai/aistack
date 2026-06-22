@@ -1,0 +1,139 @@
+package chat_test
+
+import (
+	"bytes"
+	"context"
+	"strings"
+	"testing"
+
+	"ai-cli/internal/chat"
+	"ai-cli/internal/ctxbuilder"
+	"ai-cli/internal/memory"
+	"ai-cli/internal/memory/embed"
+	"ai-cli/internal/memory/service"
+	"ai-cli/internal/memory/store"
+	"ai-cli/internal/provider"
+	"ai-cli/internal/provider/dryrun"
+	"ai-cli/internal/workspace"
+)
+
+func newSession(t *testing.T) (*chat.Session, *service.Service) {
+	t.Helper()
+	mem := service.New(store.NewMemoryStore(), embed.NewHashEmbedder(64))
+	reg := provider.NewRegistry()
+	reg.Register(dryrun.New())
+	ws := &workspace.Workspace{
+		ID:    "ws",
+		Rules: []workspace.Doc{{Name: "coding", Content: "be precise"}},
+		Agents: map[string]workspace.AgentDef{
+			"backend": {Name: "backend", System: "you are backend"},
+		},
+	}
+	s := chat.New(ctxbuilder.New(mem), mem, reg, ws, "backend", "dryrun")
+	return s, mem
+}
+
+func TestChatRetrievesMemoryAndAssembles(t *testing.T) {
+	ctx := context.Background()
+	s, mem := newSession(t)
+	if _, err := mem.Add(ctx, service.AddInput{
+		WorkspaceID: "ws", Type: memory.TypeNote, Content: "caching uses an LRU in front of storage",
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	var out bytes.Buffer
+	in := strings.NewReader("how should I add caching?\n/exit\n")
+	if err := s.Run(ctx, in, &out); err != nil {
+		t.Fatal(err)
+	}
+
+	got := out.String()
+	for _, want := range []string{"you are backend", "be precise", "caching uses an LRU", "[USER]", "how should I add caching?"} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("output missing %q:\n%s", want, got)
+		}
+	}
+}
+
+func TestChatStoresConversationAsMemory(t *testing.T) {
+	ctx := context.Background()
+	s, mem := newSession(t)
+
+	in := strings.NewReader("remember this\n/exit\n")
+	if err := s.Run(ctx, in, &bytes.Buffer{}); err != nil {
+		t.Fatal(err)
+	}
+
+	hits, err := mem.List(ctx, "ws")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var chatMems int
+	for _, m := range hits {
+		if m.Type == memory.TypeChat {
+			chatMems++
+		}
+	}
+	if chatMems == 0 {
+		t.Fatal("expected the exchange to be stored as a chat memory")
+	}
+}
+
+func TestChatExitImmediately(t *testing.T) {
+	ctx := context.Background()
+	s, _ := newSession(t)
+	if err := s.Run(ctx, strings.NewReader("/exit\n"), &bytes.Buffer{}); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// altProvider is a stand-in second provider for switching tests.
+type altProvider struct{}
+
+func (altProvider) Name() string                                { return "alt" }
+func (altProvider) Ask(context.Context, string) (string, error) { return "ALT-REPLY", nil }
+
+func newMultiSession(t *testing.T) *chat.Session {
+	t.Helper()
+	mem := service.New(store.NewMemoryStore(), embed.NewHashEmbedder(64))
+	reg := provider.NewRegistry()
+	reg.Register(dryrun.New())
+	reg.Register(altProvider{})
+	ws := &workspace.Workspace{ID: "ws", Agents: map[string]workspace.AgentDef{"backend": {Name: "backend"}}}
+	return chat.New(ctxbuilder.New(mem), mem, reg, ws, "backend", "dryrun")
+}
+
+func TestChatSwitchProvider(t *testing.T) {
+	var out bytes.Buffer
+	in := strings.NewReader("/use alt\n/provider\n/use bogus\n/exit\n")
+	if err := newMultiSession(t).Run(context.Background(), in, &out); err != nil {
+		t.Fatal(err)
+	}
+	got := out.String()
+	if !strings.Contains(got, "active provider → alt") {
+		t.Fatalf("/use did not switch:\n%s", got)
+	}
+	if !strings.Contains(got, "active: alt") {
+		t.Fatalf("/provider did not report active:\n%s", got)
+	}
+	if !strings.Contains(got, `unknown provider "bogus"`) {
+		t.Fatalf("/use bogus should error:\n%s", got)
+	}
+}
+
+func TestChatOneShotProviderDoesNotSwitch(t *testing.T) {
+	var out bytes.Buffer
+	// One-shot on alt, then a normal message which must still go to the default.
+	in := strings.NewReader("/alt one shot please\n/provider\n/exit\n")
+	if err := newMultiSession(t).Run(context.Background(), in, &out); err != nil {
+		t.Fatal(err)
+	}
+	got := out.String()
+	if !strings.Contains(got, "ALT-REPLY") {
+		t.Fatalf("one-shot did not run on alt:\n%s", got)
+	}
+	if !strings.Contains(got, "active: dryrun") {
+		t.Fatalf("one-shot must not change the active provider:\n%s", got)
+	}
+}

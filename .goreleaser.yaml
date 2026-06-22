@@ -1,0 +1,77 @@
+# GoReleaser configuration. https://goreleaser.com
+# Release: tag `vX.Y.Z` and push — GitHub Actions runs `goreleaser release`.
+# Local sanity check: `goreleaser check` / `goreleaser build --snapshot --clean`.
+version: 2
+
+project_name: ai
+
+before:
+  hooks:
+    - go mod tidy
+
+builds:
+  - id: ai
+    main: ./cmd/ai
+    binary: ai
+    # Pure-Go build (lib/pq needs no cgo) → easy cross-compilation, static binaries.
+    env:
+      - CGO_ENABLED=0
+    goos:
+      - darwin
+      - linux
+    goarch:
+      - amd64
+      - arm64
+    flags:
+      - -trimpath
+    ldflags:
+      - -s -w -X main.version={{ .Version }}
+    mod_timestamp: "{{ .CommitTimestamp }}"
+
+archives:
+  - id: ai
+    formats: [tar.gz]
+    name_template: >-
+      {{ .ProjectName }}_{{ .Version }}_{{ .Os }}_{{ .Arch }}
+    files:
+      - README.md
+      - SETUP.md
+      - LICENSE
+
+checksum:
+  name_template: checksums.txt
+
+snapshot:
+  version_template: "{{ incpatch .Version }}-next"
+
+changelog:
+  sort: asc
+  use: github
+  filters:
+    exclude:
+      - "^docs:"
+      - "^test:"
+      - "^chore:"
+      - "^ci:"
+      - Merge pull request
+      - Merge branch
+
+# Homebrew cask (the recommended path for pre-compiled binaries; the generated
+# cask also strips the macOS quarantine attribute, so unsigned binaries run).
+# Casks are macOS-only — Linux users install from the release tarball.
+homebrew_casks:
+  - name: ai
+    repository:
+      owner: triforge-ai
+      name: homebrew-tap
+      token: "{{ .Env.HOMEBREW_TAP_GITHUB_TOKEN }}"
+    homepage: "https://github.com/triforge-ai/aistack"
+    description: "Agent-driven personal AI operating system (CLI)"
+    commit_author:
+      name: goreleaser-bot
+      email: goreleaser@users.noreply.github.com
+    caveats: |
+      Optional, for the full stack:
+        - Ollama (local embeddings):  https://ollama.com  then `ollama pull nomic-embed-text`
+        - Docker (pgvector store):    `ai db up` from a workspace
+      Get started: `ai init`  then see SETUP.md.
