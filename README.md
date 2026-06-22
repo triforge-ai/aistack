@@ -271,6 +271,8 @@ ai chat backend --session refactor   # start (or reopen) a named session
 ai chat --resume 1a2b3c4d             # resume by id or name (prefix is fine)
 ai session list                       # id, name, #messages, last updated
 ai session show 1a2b3c4d              # print the full transcript
+ai session export 1a2b3c4d --format md > chat.md
+ai session export 1a2b3c4d --format json --out chat.json
 ai session rm 1a2b3c4d
 ```
 

@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"fmt"
+	"os"
 	"strings"
 	"time"
 
@@ -21,6 +22,8 @@ func cmdSession(args []string) error {
 		return cmdSessionShow(rest)
 	case "rm", "delete":
 		return cmdSessionRm(rest)
+	case "export":
+		return cmdSessionExport(rest)
 	default:
 		return fmt.Errorf("unknown session subcommand %q", sub)
 	}
@@ -100,6 +103,64 @@ func cmdSessionRm(args []string) error {
 		return err
 	}
 	fmt.Println("deleted", id)
+	return nil
+}
+
+func cmdSessionExport(args []string) error {
+	format := session.FormatMarkdown
+	var outPath string
+	var pos []string
+	for i := 0; i < len(args); i++ {
+		switch args[i] {
+		case "--format", "-f":
+			if i+1 >= len(args) {
+				return fmt.Errorf("--format needs a value (md|json)")
+			}
+			i++
+			f, err := session.ParseFormat(args[i])
+			if err != nil {
+				return err
+			}
+			format = f
+		case "--out", "-o":
+			if i+1 >= len(args) {
+				return fmt.Errorf("--out needs a path")
+			}
+			i++
+			outPath = args[i]
+		default:
+			pos = append(pos, args[i])
+		}
+	}
+	if len(pos) != 1 {
+		return fmt.Errorf("usage: ai session export <id> [--format md|json] [--out <file>]")
+	}
+
+	store, wsID, err := openSessions()
+	if err != nil {
+		return err
+	}
+	id, err := resolveID(store, wsID, pos[0])
+	if err != nil {
+		return err
+	}
+	r, err := store.Load(context.Background(), id)
+	if err != nil {
+		return err
+	}
+	data, err := session.Export(r, format)
+	if err != nil {
+		return err
+	}
+
+	if outPath == "" {
+		_, err := os.Stdout.Write(data)
+		return err
+	}
+	if err := os.WriteFile(outPath, data, 0o644); err != nil {
+		return err
+	}
+	fmt.Fprintln(os.Stderr, "wrote", outPath)
 	return nil
 }
 

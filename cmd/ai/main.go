@@ -88,6 +88,7 @@ func usage() {
   ai chat [agent]               interactive chat REPL with memory recall
         [--provider <name>] [--session <name>] [--resume <id>] [--new]
   ai session <list|show|rm>     manage saved chat sessions
+  ai session export <id>        export a session [--format md|json] [--out <file>]
   ai context <agent> <task...>  print the assembled prompt only
   ai memory add <text...>       add a note (or pipe text via stdin)
   ai memory search <query...>   search workspace memory [--limit <n>]
