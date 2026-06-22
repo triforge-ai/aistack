@@ -30,7 +30,7 @@ func cmdStatus() error {
 	fmt.Printf("root:      %s\n", ws.Root)
 	backend := ws.Storage.Type
 	if backend == "" {
-		backend = "file"
+		backend = "pgvector"
 	}
 	fmt.Printf("storage:   %s\n", backend)
 	embedder := ws.Embedder.Type

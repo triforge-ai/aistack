@@ -39,27 +39,44 @@ func DefaultConfig() Config {
 	return Config{DefaultProvider: "dryrun"}
 }
 
-// StorageFromWorkspace maps a workspace's storage config to a store.Config,
-// defaulting to a durable file store under the workspace cache dir.
+// Default pgvector connection settings, matching docker-compose.yml / db/init.sql
+// so a zero-config workspace connects to a local `ai db up` database.
+const (
+	defaultPGUser     = "ai"
+	defaultPGPassword = "ai"
+	defaultPGDB       = "ai_workspace"
+)
+
+// StorageFromWorkspace maps a workspace's storage config to a store.Config.
+// pgvector is the default backend; set `storage: type: file` (or `memory`) to
+// opt out — e.g. for a fully-offline, no-database workspace.
 func StorageFromWorkspace(ws *workspace.Workspace) store.Config {
 	sc := ws.Storage
 	switch store.Kind(sc.Type) {
-	case store.KindPgVector:
-		return store.Config{
-			Kind: store.KindPgVector,
-			Postgres: store.PostgresConfig{
-				Host:     sc.Host,
-				Port:     sc.Port,
-				User:     sc.User,
-				Password: sc.Password,
-				DB:       sc.DB,
-				SSLMode:  sc.SSLMode,
-			},
-		}
+	case store.KindFile:
+		return store.Config{Kind: store.KindFile, Path: filepath.Join(ws.CacheDir(), "memory.json")}
 	case store.KindMemory:
 		return store.Config{Kind: store.KindMemory}
-	default:
-		return store.Config{Kind: store.KindFile, Path: filepath.Join(ws.CacheDir(), "memory.json")}
+	default: // empty or "pgvector" → pgvector
+		pc := store.PostgresConfig{
+			Host:     sc.Host,
+			Port:     sc.Port,
+			User:     sc.User,
+			Password: sc.Password,
+			DB:       sc.DB,
+			SSLMode:  sc.SSLMode,
+		}
+		// Fill connection defaults so an unconfigured workspace still connects.
+		if pc.User == "" {
+			pc.User = defaultPGUser
+		}
+		if pc.Password == "" {
+			pc.Password = defaultPGPassword
+		}
+		if pc.DB == "" {
+			pc.DB = defaultPGDB
+		}
+		return store.Config{Kind: store.KindPgVector, Postgres: pc}
 	}
 }
 
