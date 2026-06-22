@@ -56,9 +56,11 @@ changelog:
       - Merge pull request
       - Merge branch
 
-# Homebrew cask (the recommended path for pre-compiled binaries; the generated
-# cask also strips the macOS quarantine attribute, so unsigned binaries run).
-# Casks are macOS-only — Linux users install from the release tarball.
+# Homebrew cask. GoReleaser deprecated `brews` (formula), so casks are the
+# supported path — but a cask quarantines the downloaded binary, and macOS
+# SIGKILLs an unsigned/ad-hoc-signed (non-notarized) binary that is quarantined.
+# The post-install hook strips the quarantine flag so `ai` runs on first launch.
+# Casks are macOS-only; Linux users install from the release tarball.
 homebrew_casks:
   - name: ai
     repository:
@@ -70,6 +72,10 @@ homebrew_casks:
     commit_author:
       name: goreleaser-bot
       email: goreleaser@users.noreply.github.com
+    hooks:
+      post:
+        install: |
+          system_command "/usr/bin/xattr", args: ["-dr", "com.apple.quarantine", "#{staged_path}/ai"]
     caveats: |
       Optional, for the full stack:
         - Ollama (local embeddings):  https://ollama.com  then `ollama pull nomic-embed-text`
