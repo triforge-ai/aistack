@@ -21,14 +21,22 @@ type BuildRequest struct {
 	MemoryLimit int
 }
 
+// Exchange is one prior conversation turn, included when assembling a multi-turn
+// (chat) prompt. Single-shot runs leave History empty.
+type Exchange struct {
+	Role string // display label, e.g. "User" or "Assistant (claude)"
+	Text string
+}
+
 // Context is the selected material that becomes a prompt.
 type Context struct {
-	Agent  string
-	System string
-	Rules  []string
-	Skills []string
-	Memory []memory.Memory
-	Task   string
+	Agent   string
+	System  string
+	Rules   []string
+	Skills  []string
+	Memory  []memory.Memory
+	History []Exchange
+	Task    string
 }
 
 // Builder turns a BuildRequest into a Context.

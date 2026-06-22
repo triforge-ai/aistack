@@ -338,55 +338,49 @@ func (s *Session) persistTurn(ctx context.Context, out io.Writer, user, assistan
 	}
 }
 
+// maxChatMemoryReply caps how much of an assistant turn is kept as a chat
+// memory. The full turn already lives verbatim in the session transcript; the
+// memory is only a recall snippet, so storing the whole (possibly large) reply
+// just bloats the index and feeds it back into later retrievals.
+const maxChatMemoryReply = 1500
+
 // remember stores the exchange as a chat memory (best-effort). It is a no-op
-// when persistence is disabled (see /save).
+// when persistence is disabled (see /remember). The assistant reply is truncated
+// to keep the semantic index from ballooning.
 func (s *Session) remember(ctx context.Context, user, assistant string) {
 	if !s.saveMemory || strings.TrimSpace(assistant) == "" {
 		return
+	}
+	meta := map[string]any{"agent": s.agent}
+	if s.record != nil {
+		meta["session"] = s.record.ID
 	}
 	_, _ = s.memory.Add(ctx, service.AddInput{
 		WorkspaceID: s.ws.ID,
 		Type:        memory.TypeChat,
 		Source:      memory.SourceAgent,
-		Content:     "User: " + user + "\nAssistant: " + assistant,
-		Metadata:    map[string]any{"agent": s.agent},
+		Content:     "User: " + user + "\nAssistant: " + truncateRunes(assistant, maxChatMemoryReply),
+		Metadata:    meta,
 	})
 }
 
-// assemble builds the prompt: system + rules + skills + retrieved memory +
-// recent conversation + the new message.
+// assemble builds the prompt using the shared context assembler, adding the
+// recent conversation so chat and `ai run` produce the same layout and section
+// labels (no second, divergent assembler).
 func (s *Session) assemble(c ctxbuilder.Context, msg string) string {
-	var b strings.Builder
-	if c.System != "" {
-		b.WriteString(c.System)
-		b.WriteString("\n\n")
-	}
-	section(&b, "RULES", c.Rules)
-	section(&b, "SKILLS", c.Skills)
+	c.Task = msg
+	c.History = s.historyExchanges()
+	return ctxbuilder.Assemble(c)
+}
 
-	if len(c.Memory) > 0 {
-		mems := make([]string, 0, len(c.Memory))
-		for _, m := range c.Memory {
-			mems = append(mems, m.Content)
-		}
-		section(&b, "RELEVANT MEMORY", mems)
+// historyExchanges converts the recent in-memory history into assembler turns.
+func (s *Session) historyExchanges() []ctxbuilder.Exchange {
+	h := s.recentHistory()
+	out := make([]ctxbuilder.Exchange, 0, len(h))
+	for _, m := range h {
+		out = append(out, ctxbuilder.Exchange{Role: m.role, Text: m.text})
 	}
-
-	if h := s.recentHistory(); len(h) > 0 {
-		b.WriteString("[CONVERSATION SO FAR]\n")
-		for _, m := range h {
-			b.WriteString(m.role)
-			b.WriteString(": ")
-			b.WriteString(m.text)
-			b.WriteString("\n")
-		}
-		b.WriteString("\n")
-	}
-
-	b.WriteString("[USER]\n")
-	b.WriteString(msg)
-	b.WriteString("\n")
-	return b.String()
+	return out
 }
 
 func (s *Session) recentHistory() []message {
@@ -396,13 +390,14 @@ func (s *Session) recentHistory() []message {
 	return s.history[len(s.history)-historyWindow:]
 }
 
-func section(b *strings.Builder, title string, items []string) {
-	if len(items) == 0 {
-		return
+// truncateRunes shortens s to at most n runes, appending an ellipsis marker when
+// it cuts (rune-safe so multibyte text is never split).
+func truncateRunes(s string, n int) string {
+	r := []rune(s)
+	if len(r) <= n {
+		return s
 	}
-	b.WriteString("[" + title + "]\n")
-	b.WriteString(strings.Join(items, "\n\n"))
-	b.WriteString("\n\n")
+	return string(r[:n]) + "…[truncated]"
 }
 
 func firstLine(s string) string {
