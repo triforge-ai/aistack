@@ -5,8 +5,8 @@ import (
 	"path/filepath"
 	"testing"
 
-	"ai-cli/internal/memory"
-	"ai-cli/internal/memory/store"
+	"github.com/triforge-ai/aistack/internal/memory"
+	"github.com/triforge-ai/aistack/internal/memory/store"
 )
 
 func TestFileStorePersistsAcrossReopen(t *testing.T) {

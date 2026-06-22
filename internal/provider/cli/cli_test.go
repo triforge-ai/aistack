@@ -54,6 +54,49 @@ func TestAvailability(t *testing.T) {
 	}
 }
 
+func TestHealthRunnable(t *testing.T) {
+	// `echo hi` exits 0 and prints "hi" — a healthy, runnable probe.
+	p := New(Spec{Name: "fake", Bin: "echo", HealthArgs: []string{"hi"}})
+	detail, err := p.Health(context.Background())
+	if err != nil {
+		t.Fatalf("expected healthy, got %v", err)
+	}
+	if detail != "hi" {
+		t.Fatalf("detail = %q, want first probe line %q", detail, "hi")
+	}
+}
+
+func TestHealthNotInstalled(t *testing.T) {
+	p := New(Spec{Name: "fake", Bin: "definitely-not-a-real-binary-xyz"})
+	if _, err := p.Health(context.Background()); err == nil {
+		t.Fatal("expected error for a missing binary")
+	} else if !strings.Contains(err.Error(), "not installed") {
+		t.Fatalf("error should say not installed: %v", err)
+	}
+}
+
+func TestHealthNotRunnable(t *testing.T) {
+	// `false` is on PATH but exits non-zero → installed but not runnable.
+	p := New(Spec{Name: "fake", Bin: "false", HealthArgs: []string{"--version"}})
+	if _, err := p.Health(context.Background()); err == nil {
+		t.Fatal("expected error for a failing probe")
+	} else if !strings.Contains(err.Error(), "not runnable") {
+		t.Fatalf("error should say not runnable: %v", err)
+	}
+}
+
+func TestBuiltinsDeclareVersionProbe(t *testing.T) {
+	for _, s := range Builtins() {
+		if len(s.HealthArgs) == 0 {
+			t.Errorf("builtin %q has no health probe", s.Name)
+			continue
+		}
+		if s.HealthArgs[0] != "--version" {
+			t.Errorf("builtin %q probe = %v, want a --version probe", s.Name, s.HealthArgs)
+		}
+	}
+}
+
 func TestErrorIncludesStderr(t *testing.T) {
 	// `false` exits non-zero with no output.
 	p := New(Spec{Name: "fake", Bin: "false"})

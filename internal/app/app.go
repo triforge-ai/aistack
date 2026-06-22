@@ -4,16 +4,16 @@ package app
 import (
 	"path/filepath"
 
-	"ai-cli/internal/agent"
-	"ai-cli/internal/ctxbuilder"
-	"ai-cli/internal/memory/embed"
-	"ai-cli/internal/memory/service"
-	"ai-cli/internal/memory/store"
-	syncpkg "ai-cli/internal/memory/sync"
-	"ai-cli/internal/provider"
-	providercli "ai-cli/internal/provider/cli"
-	"ai-cli/internal/provider/dryrun"
-	"ai-cli/internal/workspace"
+	"github.com/triforge-ai/aistack/internal/agent"
+	"github.com/triforge-ai/aistack/internal/ctxbuilder"
+	"github.com/triforge-ai/aistack/internal/memory/embed"
+	"github.com/triforge-ai/aistack/internal/memory/service"
+	"github.com/triforge-ai/aistack/internal/memory/store"
+	syncpkg "github.com/triforge-ai/aistack/internal/memory/sync"
+	"github.com/triforge-ai/aistack/internal/provider"
+	providercli "github.com/triforge-ai/aistack/internal/provider/cli"
+	"github.com/triforge-ai/aistack/internal/provider/dryrun"
+	"github.com/triforge-ai/aistack/internal/workspace"
 )
 
 // Config controls how the app is assembled.
@@ -68,12 +68,13 @@ func ProvidersFromWorkspace(ws *workspace.Workspace) []providercli.Spec {
 	specs := make([]providercli.Spec, 0, len(ws.Providers))
 	for _, p := range ws.Providers {
 		specs = append(specs, providercli.Spec{
-			Name:   p.Name,
-			Bin:    p.Bin,
-			Args:   p.Args,
-			Stdin:  p.Stdin,
-			Stream: p.Stream,
-			Format: p.Format,
+			Name:       p.Name,
+			Bin:        p.Bin,
+			Args:       p.Args,
+			Stdin:      p.Stdin,
+			Stream:     p.Stream,
+			Format:     p.Format,
+			HealthArgs: p.HealthArgs,
 		})
 	}
 	return specs

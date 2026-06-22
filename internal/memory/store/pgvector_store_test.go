@@ -4,7 +4,7 @@ import (
 	"context"
 	"testing"
 
-	"ai-cli/internal/memory"
+	"github.com/triforge-ai/aistack/internal/memory"
 )
 
 func TestVectorLiteral(t *testing.T) {

@@ -4,7 +4,7 @@ import (
 	"context"
 	"sync"
 
-	"ai-cli/internal/memory"
+	"github.com/triforge-ai/aistack/internal/memory"
 )
 
 // MemoryStore is an in-process Store used for tests and ephemeral runs. It lets

@@ -3,8 +3,8 @@ package store
 import (
 	"sort"
 
-	"ai-cli/internal/memory"
-	"ai-cli/internal/vector"
+	"github.com/triforge-ai/aistack/internal/memory"
+	"github.com/triforge-ai/aistack/internal/vector"
 )
 
 // rank filters candidates to the queried workspace, orders them by cosine

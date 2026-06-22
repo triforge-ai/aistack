@@ -8,7 +8,7 @@ import (
 	"path/filepath"
 	"sync"
 
-	"ai-cli/internal/memory"
+	"github.com/triforge-ai/aistack/internal/memory"
 )
 
 // FileStore is a durable, single-file JSON Store. It is the default backend for

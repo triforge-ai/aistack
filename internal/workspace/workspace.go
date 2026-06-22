@@ -20,6 +20,9 @@ type Workspace struct {
 	// Embedder selects the embedding backend (hash by default, or ollama).
 	Embedder EmbedderConfig
 
+	// Chat tunes the interactive REPL (e.g. whether turns are persisted).
+	Chat ChatConfig
+
 	// Providers are extra/override agent CLI backends; DefaultProvider names the
 	// one used when an agent does not specify its own.
 	Providers       []ProviderConfig
@@ -28,6 +31,15 @@ type Workspace struct {
 	Rules  []Doc
 	Skills []Doc
 	Agents map[string]AgentDef
+}
+
+// SaveChatMemory reports whether chat turns should be persisted back into
+// memory. It defaults to true (the config field is nil unless explicitly set).
+func (w *Workspace) SaveChatMemory() bool {
+	if w.Chat.SaveMemory != nil {
+		return *w.Chat.SaveMemory
+	}
+	return true
 }
 
 // DocumentsDir returns the in-workspace documents directory.

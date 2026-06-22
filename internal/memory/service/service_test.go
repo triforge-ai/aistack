@@ -4,10 +4,10 @@ import (
 	"context"
 	"testing"
 
-	"ai-cli/internal/memory"
-	"ai-cli/internal/memory/embed"
-	"ai-cli/internal/memory/service"
-	"ai-cli/internal/memory/store"
+	"github.com/triforge-ai/aistack/internal/memory"
+	"github.com/triforge-ai/aistack/internal/memory/embed"
+	"github.com/triforge-ai/aistack/internal/memory/service"
+	"github.com/triforge-ai/aistack/internal/memory/store"
 )
 
 func newService() *service.Service {

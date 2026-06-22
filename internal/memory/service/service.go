@@ -9,11 +9,11 @@ import (
 	"fmt"
 	"time"
 
-	"ai-cli/internal/memory"
-	"ai-cli/internal/memory/chunk"
-	"ai-cli/internal/memory/embed"
-	"ai-cli/internal/memory/ranking"
-	"ai-cli/internal/memory/store"
+	"github.com/triforge-ai/aistack/internal/memory"
+	"github.com/triforge-ai/aistack/internal/memory/chunk"
+	"github.com/triforge-ai/aistack/internal/memory/embed"
+	"github.com/triforge-ai/aistack/internal/memory/ranking"
+	"github.com/triforge-ai/aistack/internal/memory/store"
 )
 
 // Service is the high-level entrypoint to the memory engine.

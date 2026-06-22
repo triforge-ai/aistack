@@ -48,6 +48,9 @@ AI CLI (cmd/ai)
 # Homebrew (macOS)
 brew install triforge-ai/tap/ai
 
+# From source with the Go toolchain
+go install github.com/triforge-ai/aistack/cmd/ai@latest
+
 # Or grab a binary from the GitHub Releases page (macOS/Linux, amd64/arm64),
 # or build from source (below).
 ```
@@ -160,8 +163,17 @@ uses hybrid when the backend supports it.
 | `ai memory sync [name]` | incrementally sync `documents/` (+ obsidian) into memory |
 | `ai db <up\|down\|status\|ping>` | manage the pgvector database via docker compose |
 | `ai providers` | list agent providers and whether their CLI is installed |
+| `ai health [provider...]` | check provider CLIs are installed **and runnable** (`--live` pings end-to-end) |
 
 Flags for `run`: `--provider <name>`, `--limit <n>`.
+
+`ai health` goes a step beyond `ai providers`: it runs each CLI's `--version`
+probe to confirm it actually executes (not just that it's on `PATH`), and exits
+non-zero if any checked provider is unhealthy — handy in CI or a setup script.
+Check specific agents with `ai health claude codex agy`. Add `--live` to send a
+tiny prompt through each agent end-to-end (this invokes the real agent and may
+cost tokens). Override the probe per provider in `workspace.yaml` with
+`health_args:` if a CLI lacks `--version`.
 
 ### Agent CLI providers
 
@@ -206,8 +218,18 @@ ai chat backend
 backend> how should I add caching here?
   …answer streams in…
 backend> /memory      # show what was retrieved for the last message
+backend> /save off    # stop persisting this session's turns to memory
 backend> /reset       # clear the conversation
 backend> /exit
+```
+
+By default every turn is stored back as a `chat` memory. To keep a session
+ephemeral, toggle it at runtime with `/save off`, or disable persistence for the
+workspace in `.ai/workspace.yaml`:
+
+```yaml
+chat:
+  save_memory: false   # default is true
 ```
 
 **Multi-provider in one session.** Switch the model mid-chat without losing the

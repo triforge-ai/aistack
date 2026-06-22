@@ -28,6 +28,13 @@ type Streamer interface {
 	Streams() bool
 }
 
+// HealthChecker is an optional capability: a provider can verify it is not just
+// installed but actually runnable, returning a short detail (e.g. a version
+// string) on success or an error describing why it is unhealthy.
+type HealthChecker interface {
+	Health(ctx context.Context) (detail string, err error)
+}
+
 // Registry holds the available providers by name.
 type Registry struct {
 	providers map[string]Provider

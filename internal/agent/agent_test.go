@@ -5,14 +5,14 @@ import (
 	"strings"
 	"testing"
 
-	"ai-cli/internal/agent"
-	"ai-cli/internal/ctxbuilder"
-	"ai-cli/internal/memory/embed"
-	"ai-cli/internal/memory/service"
-	"ai-cli/internal/memory/store"
-	"ai-cli/internal/provider"
-	"ai-cli/internal/provider/dryrun"
-	"ai-cli/internal/workspace"
+	"github.com/triforge-ai/aistack/internal/agent"
+	"github.com/triforge-ai/aistack/internal/ctxbuilder"
+	"github.com/triforge-ai/aistack/internal/memory/embed"
+	"github.com/triforge-ai/aistack/internal/memory/service"
+	"github.com/triforge-ai/aistack/internal/memory/store"
+	"github.com/triforge-ai/aistack/internal/provider"
+	"github.com/triforge-ai/aistack/internal/provider/dryrun"
+	"github.com/triforge-ai/aistack/internal/workspace"
 )
 
 func TestRunnerAssemblesAndDispatches(t *testing.T) {
