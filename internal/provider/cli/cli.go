@@ -8,9 +8,7 @@ import (
 	"bufio"
 	"bytes"
 	"context"
-	"encoding/json"
 	"fmt"
-	"io"
 	"os"
 	"os/exec"
 	"strings"
@@ -132,131 +130,146 @@ func firstLine(s string) string {
 	return ""
 }
 
-// Ask invokes the CLI with the prompt and returns its captured stdout. In
-// streaming mode the output is also echoed live to the terminal (tee), so
-// callers get the text while the user sees progress. The prompt is delivered on
-// stdin (Stdin mode) or as an argument; the process never inherits the parent's
-// stdin, so an interactive caller (e.g. the chat REPL) keeps the keyboard.
+// Ask invokes the CLI with the prompt and returns its captured stdout. It is the
+// back-compatible thin wrapper over Execute, which renders stream-json output
+// live to the terminal by default. Callers that need token usage or a resumable
+// session id call Execute directly.
 func (p *CmdProvider) Ask(ctx context.Context, prompt string) (string, error) {
-	if p.spec.Timeout > 0 {
-		var cancel context.CancelFunc
-		ctx, cancel = context.WithTimeout(ctx, p.spec.Timeout)
-		defer cancel()
-	}
-
-	args := p.spec.Args
-	if !p.spec.Stdin {
-		args = withPrompt(args, prompt)
-	}
-	cmd := exec.CommandContext(ctx, p.spec.Bin, args...)
-	if p.spec.Stdin {
-		cmd.Stdin = strings.NewReader(prompt)
-	}
-
-	if p.spec.Format == "stream-json" {
-		return p.askStreamJSON(cmd, os.Stdout)
-	}
-
-	var stdout, stderr bytes.Buffer
-	if p.spec.Stream {
-		cmd.Stdout = io.MultiWriter(os.Stdout, &stdout)
-		cmd.Stderr = os.Stderr
-	} else {
-		cmd.Stdout = &stdout
-		cmd.Stderr = &stderr
-	}
-
-	if err := cmd.Run(); err != nil {
-		msg := strings.TrimSpace(stderr.String())
-		if msg == "" {
-			msg = strings.TrimSpace(stdout.String())
-		}
-		return "", fmt.Errorf("%s: %w: %s", p.spec.Bin, err, msg)
-	}
-	return strings.TrimSpace(stdout.String()), nil
-}
-
-// askStreamJSON runs the agent, renders its event stream to out as it arrives,
-// and returns the final result text.
-func (p *CmdProvider) askStreamJSON(cmd *exec.Cmd, out io.Writer) (string, error) {
-	cmd.Stderr = os.Stderr
-	pipe, err := cmd.StdoutPipe()
+	res, err := p.Execute(ctx, prompt, provider.ExecOptions{})
 	if err != nil {
 		return "", err
 	}
+	return res.Output, nil
+}
+
+// Execute runs the prompt and returns a structured RunResult: the assistant
+// text plus, for backends that report it, per-model token usage and a resumable
+// session id. Typed progress events are delivered to opts.OnEvent as they
+// arrive. This is the richer capability the simple Ask path is built on.
+func (p *CmdProvider) Execute(ctx context.Context, prompt string, opts provider.ExecOptions) (provider.RunResult, error) {
+	timeout := opts.Timeout
+	if timeout == 0 {
+		timeout = p.spec.Timeout
+	}
+	if timeout > 0 {
+		var cancel context.CancelFunc
+		ctx, cancel = context.WithTimeout(ctx, timeout)
+		defer cancel()
+	}
+
+	spec := p.spec
+	if opts.Write && len(spec.WriteArgs) > 0 {
+		spec.Args = append(append([]string{}, spec.Args...), spec.WriteArgs...)
+	}
+	args := spec.Args
+	if !spec.Stdin {
+		args = withPrompt(args, prompt)
+	}
+
+	cmd := exec.CommandContext(ctx, spec.Bin, args...)
+	cmd.Env = filteredEnv()
+	if spec.Stdin {
+		cmd.Stdin = strings.NewReader(prompt)
+	}
+
+	if spec.Format == "stream-json" {
+		return p.executeStreamJSON(ctx, cmd, opts)
+	}
+	return p.executePlain(cmd, opts)
+}
+
+// executeStreamJSON drives a stream-json CLI: it pipes stdout through the typed
+// parser (emitting opts.OnEvent), tees stderr to the terminal while retaining a
+// bounded tail for error reporting, and assembles a RunResult with usage and the
+// session id.
+func (p *CmdProvider) executeStreamJSON(ctx context.Context, cmd *exec.Cmd, opts provider.ExecOptions) (provider.RunResult, error) {
+	start := time.Now()
+	stderr := newStderrTail(os.Stderr)
+	cmd.Stderr = stderr
+
+	pipe, err := cmd.StdoutPipe()
+	if err != nil {
+		return provider.RunResult{Status: "failed", Error: err.Error()}, err
+	}
 	if err := cmd.Start(); err != nil {
-		return "", err
+		return provider.RunResult{Status: "failed", Error: err.Error()}, fmt.Errorf("start %s: %w", p.spec.Bin, err)
 	}
-	result := renderStreamJSON(pipe, out)
-	if err := cmd.Wait(); err != nil {
-		return "", fmt.Errorf("%s: %w", p.spec.Bin, err)
+
+	// The provider only emits typed events; whether/how they reach a terminal is
+	// the caller's renderer (opts.OnEvent). A nil sink simply captures silently.
+	parsed := parseStreamJSON(pipe, opts.OnEvent)
+	waitErr := cmd.Wait()
+
+	res := provider.RunResult{
+		Output:     parsed.text(),
+		Status:     "completed",
+		SessionID:  parsed.sessionID,
+		DurationMs: time.Since(start).Milliseconds(),
+		Usage:      parsed.usage,
 	}
-	return strings.TrimSpace(result), nil
+	switch {
+	case ctx.Err() == context.DeadlineExceeded:
+		res.Status = "timeout"
+		res.Error = withStderr(fmt.Sprintf("%s timed out", p.spec.Bin), stderr.Tail())
+	case parsed.isError:
+		res.Status = "failed"
+		res.Error = withStderr(parsed.finalText, stderr.Tail())
+	case waitErr != nil:
+		res.Status = "failed"
+		res.Error = withStderr(fmt.Sprintf("%s exited: %v", p.spec.Bin, waitErr), stderr.Tail())
+	}
+	if res.Error != "" {
+		return res, fmt.Errorf("%s: %s", p.spec.Bin, res.Error)
+	}
+	return res, nil
 }
 
-// streamEvent is the subset of Claude Code's stream-json events we render.
-type streamEvent struct {
-	Type    string `json:"type"`
-	Subtype string `json:"subtype"`
-	Result  string `json:"result"`
-	Message *struct {
-		Content []struct {
-			Type  string          `json:"type"`
-			Text  string          `json:"text"`
-			Name  string          `json:"name"`
-			Input json.RawMessage `json:"input"`
-		} `json:"content"`
-	} `json:"message"`
-}
+// executePlain drives a CLI with no structured protocol: its stdout is opaque
+// text. With a sink, stdout is streamed line-by-line as EventText so the caller
+// renders it live; without one it is captured silently. Either way the provider
+// never writes output to the terminal itself. Plain CLIs report no token usage,
+// so Usage is left empty.
+func (p *CmdProvider) executePlain(cmd *exec.Cmd, opts provider.ExecOptions) (provider.RunResult, error) {
+	start := time.Now()
+	var stdout bytes.Buffer
+	stderr := newStderrTail(os.Stderr)
+	cmd.Stderr = stderr
 
-// renderStreamJSON turns the newline-delimited event stream into readable live
-// output (assistant text + dimmed tool-call lines) and returns the final result.
-func renderStreamJSON(r io.Reader, out io.Writer) string {
-	sc := bufio.NewScanner(r)
-	sc.Buffer(make([]byte, 0, 64*1024), 8*1024*1024)
+	var runErr error
+	if opts.OnEvent != nil {
+		pipe, err := cmd.StdoutPipe()
+		if err != nil {
+			return provider.RunResult{Status: "failed", Error: err.Error()}, err
+		}
+		if err := cmd.Start(); err != nil {
+			return provider.RunResult{Status: "failed", Error: err.Error()}, fmt.Errorf("start %s: %w", p.spec.Bin, err)
+		}
+		sc := bufio.NewScanner(pipe)
+		sc.Buffer(make([]byte, 0, 64*1024), 10*1024*1024)
+		for sc.Scan() {
+			line := sc.Text()
+			stdout.WriteString(line)
+			stdout.WriteByte('\n')
+			opts.OnEvent(provider.Event{Kind: provider.EventText, Text: line + "\n"})
+		}
+		runErr = cmd.Wait()
+	} else {
+		cmd.Stdout = &stdout
+		runErr = cmd.Run()
+	}
 
-	var final string
-	for sc.Scan() {
-		var e streamEvent
-		if json.Unmarshal(sc.Bytes(), &e) != nil {
-			continue // ignore non-JSON / unknown lines
+	out := strings.TrimSpace(stdout.String())
+	res := provider.RunResult{Output: out, Status: "completed", DurationMs: time.Since(start).Milliseconds()}
+	if runErr != nil {
+		detail := stderr.Tail()
+		if detail == "" {
+			detail = out
 		}
-		switch e.Type {
-		case "assistant":
-			if e.Message == nil {
-				continue
-			}
-			for _, b := range e.Message.Content {
-				switch b.Type {
-				case "text":
-					fmt.Fprint(out, b.Text)
-				case "tool_use":
-					fmt.Fprintf(out, "\n\x1b[2m· %s %s\x1b[0m\n", b.Name, toolSummary(b.Input))
-				}
-			}
-		case "result":
-			final = e.Result
-		}
+		res.Status = "failed"
+		res.Error = withStderr("", detail)
+		return res, fmt.Errorf("%s: %w: %s", p.spec.Bin, runErr, detail)
 	}
-	fmt.Fprintln(out)
-	return final
-}
-
-// toolSummary extracts a short, human-readable hint from a tool's input.
-func toolSummary(input json.RawMessage) string {
-	var m map[string]any
-	if json.Unmarshal(input, &m) != nil {
-		return ""
-	}
-	for _, k := range []string{"file_path", "path", "command", "pattern", "url", "query"} {
-		if v, ok := m[k].(string); ok && v != "" {
-			if len(v) > 80 {
-				v = v[:77] + "…"
-			}
-			return v
-		}
-	}
-	return ""
+	return res, nil
 }
 
 // withPrompt substitutes the prompt for any placeholder argument, or appends it

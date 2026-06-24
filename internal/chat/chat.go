@@ -15,6 +15,7 @@ import (
 	"github.com/triforge-ai/aistack/internal/memory"
 	"github.com/triforge-ai/aistack/internal/memory/service"
 	"github.com/triforge-ai/aistack/internal/provider"
+	"github.com/triforge-ai/aistack/internal/render"
 	"github.com/triforge-ai/aistack/internal/session"
 	"github.com/triforge-ai/aistack/internal/workspace"
 )
@@ -301,16 +302,13 @@ func (s *Session) turn(ctx context.Context, out io.Writer, msg, providerName str
 			prov = w.WithWrite()
 		}
 	}
-	streamed := false
-	if st, ok := prov.(provider.Streamer); ok {
-		streamed = st.Streams()
-	}
-
-	resp, err := prov.Ask(ctx, s.assemble(built, msg))
+	resp, streamed, err := s.dispatch(ctx, out, prov, s.assemble(built, msg))
 	if err != nil {
 		return err
 	}
-	if !streamed {
+	if streamed {
+		fmt.Fprintln(out) // terminate the live-rendered turn with a newline
+	} else {
 		fmt.Fprintln(out, resp)
 	}
 
@@ -322,6 +320,27 @@ func (s *Session) turn(ctx context.Context, out io.Writer, msg, providerName str
 	s.remember(ctx, msg, resp)
 	s.persistTurn(ctx, out, msg, resp, providerName)
 	return nil
+}
+
+// dispatch sends the prompt to the provider, preferring the structured Execute
+// path so the typed event stream renders live progress to out and the backend
+// session id is captured onto the record (for a later --resume). The returned
+// bool reports whether the turn was streamed (rendered live), so the caller
+// knows not to reprint the final text. It falls back to Ask for plain providers.
+func (s *Session) dispatch(ctx context.Context, out io.Writer, prov provider.Provider, prompt string) (string, bool, error) {
+	ex, ok := prov.(provider.Executor)
+	if !ok {
+		resp, err := prov.Ask(ctx, prompt)
+		return resp, false, err
+	}
+	rr, err := ex.Execute(ctx, prompt, provider.ExecOptions{OnEvent: render.Terminal(out)})
+	if err != nil {
+		return "", true, err
+	}
+	if rr.SessionID != "" && s.record != nil {
+		s.record.ProviderSession = rr.SessionID
+	}
+	return rr.Output, true, nil
 }
 
 // persistTurn appends the exchange to the active session record and saves it

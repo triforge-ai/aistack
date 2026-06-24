@@ -10,6 +10,7 @@ import (
 	"github.com/triforge-ai/aistack/internal/app"
 	"github.com/triforge-ai/aistack/internal/chat"
 	"github.com/triforge-ai/aistack/internal/provider"
+	"github.com/triforge-ai/aistack/internal/render"
 	"github.com/triforge-ai/aistack/internal/session"
 	"github.com/triforge-ai/aistack/internal/workspace"
 )
@@ -27,16 +28,63 @@ func cmdRun(args []string) error {
 		return err
 	}
 	writeHint(a, ws, pos[0], opts.provider, opts.write)
-	res, err := a.Runner.Run(context.Background(), runRequest(ws, pos[0], strings.Join(pos[1:], " "), opts))
+	req := runRequest(ws, pos[0], strings.Join(pos[1:], " "), opts)
+	req.OnEvent = render.Terminal(os.Stdout)
+	res, err := a.Runner.Run(context.Background(), req)
 	if err != nil {
 		return err
 	}
 	if res.Streamed {
-		// The agent CLI already wrote its output to the terminal.
-		return nil
+		fmt.Fprintln(os.Stdout) // terminate the live-rendered output with a newline
+	} else {
+		// Plain providers don't render their own output — print it.
+		fmt.Printf("[agent=%s provider=%s]\n\n%s\n", pos[0], res.Provider, res.Output)
 	}
-	fmt.Printf("[agent=%s provider=%s]\n\n%s\n", pos[0], res.Provider, res.Output)
+	if footer := runFooter(pos[0], res); footer != "" {
+		fmt.Fprintln(os.Stderr, footer)
+	}
 	return nil
+}
+
+// runFooter builds a compact one-line summary of a run — duration and token
+// usage — for backends that report them. It returns "" when there is nothing
+// structured to show (e.g. a plain provider), so simple runs stay quiet.
+func runFooter(agentName string, res agent.Result) string {
+	var parts []string
+	if res.DurationMs > 0 {
+		parts = append(parts, fmt.Sprintf("%.1fs", float64(res.DurationMs)/1000))
+	}
+	if u := totalUsage(res.Usage); u != (provider.Usage{}) {
+		seg := fmt.Sprintf("%s in / %s out", humanTokens(u.InputTokens), humanTokens(u.OutputTokens))
+		if cache := u.CacheReadTokens + u.CacheWriteTokens; cache > 0 {
+			seg += fmt.Sprintf(" (+%s cache)", humanTokens(cache))
+		}
+		parts = append(parts, seg)
+	}
+	if len(parts) == 0 {
+		return ""
+	}
+	return fmt.Sprintf("[agent=%s provider=%s · %s]", agentName, res.Provider, strings.Join(parts, " · "))
+}
+
+// totalUsage sums per-model usage into a single tally for the footer.
+func totalUsage(usage map[string]provider.Usage) provider.Usage {
+	var t provider.Usage
+	for _, u := range usage {
+		t.InputTokens += u.InputTokens
+		t.OutputTokens += u.OutputTokens
+		t.CacheReadTokens += u.CacheReadTokens
+		t.CacheWriteTokens += u.CacheWriteTokens
+	}
+	return t
+}
+
+// humanTokens renders a token count compactly (e.g. 1.2k, 340).
+func humanTokens(n int64) string {
+	if n >= 1000 {
+		return fmt.Sprintf("%.1fk", float64(n)/1000)
+	}
+	return fmt.Sprintf("%d", n)
 }
 
 func cmdChat(args []string) error {

@@ -33,6 +33,11 @@ type Record struct {
 	UpdatedAt int64          `json:"updated_at"`
 	Messages  []Message      `json:"messages"`
 	Meta      map[string]any `json:"meta,omitempty"`
+
+	// ProviderSession is the backend's own session id (e.g. Claude Code's), from
+	// the most recent turn. It is recorded so a future resume can pass it to the
+	// CLI via --resume; the verbatim transcript above is replayed regardless.
+	ProviderSession string `json:"provider_session,omitempty"`
 }
 
 // New mints a fresh session record. When name is empty it defaults to
